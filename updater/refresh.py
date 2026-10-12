@@ -146,6 +146,68 @@ def espn(c,cfg,rosters=False):
    except Exception:c['coverage']['rosters']='Alcune rose conservano l’ultima versione verificata.'
  return c
 
+# Football-Data.org: authenticated server-side access, at most 8.5 requests/minute.
+_fd_last=0
+def fd_get(code,resource):
+ global _fd_last
+ token=os.environ.get('FOOTBALL_DATA_TOKEN','').strip()
+ if not token:raise RuntimeError('Secret FOOTBALL_DATA_TOKEN mancante')
+ time.sleep(max(0,7.1-(time.monotonic()-_fd_last)))
+ req=urllib.request.Request('https://api.football-data.org/v4/competitions/'+code+resource,headers={'X-Auth-Token':token,'User-Agent':'QuiSport/1.0'})
+ _fd_last=time.monotonic()
+ with urllib.request.urlopen(req,timeout=40) as response:return json.load(response)
+
+FD_NATIONS=dict(zip('Mexico|Czech Republic|South Korea|South Africa|Canada|Bosnia and Herzegovina|Switzerland|Qatar|Brazil|Scotland|Haiti|Morocco|Paraguay|Turkey|Australia|United States|Ecuador|Germany|Ivory Coast|Curaçao|Netherlands|Sweden|Japan|Tunisia|Belgium|Iran|Egypt|New Zealand|Spain|Uruguay|Saudi Arabia|Cape Verde|Norway|France|Senegal|Iraq|Argentina|Austria|Algeria|Jordan|Colombia|Portugal|Uzbekistan|DR Congo|England|Croatia|Panama|Ghana|Hungary|Italy|Albania|Slovenia|Denmark|Serbia|Poland|Ukraine|Slovakia|Romania|Georgia'.split('|'),'Messico|Cechia|Corea del Sud|Sudafrica|Canada|Bosnia-Herzegovina|Svizzera|Qatar|Brasile|Scozia|Haiti|Marocco|Paraguay|Turchia|Australia|Stati Uniti|Ecuador|Germania|Costa d’Avorio|Curaçao|Paesi Bassi|Svezia|Giappone|Tunisia|Belgio|Iran|Egitto|Nuova Zelanda|Spagna|Uruguay|Arabia Saudita|Capo Verde|Norvegia|Francia|Senegal|Iraq|Argentina|Austria|Algeria|Giordania|Colombia|Portogallo|Uzbekistan|RD Congo|Inghilterra|Croazia|Panama|Ghana|Ungheria|Italia|Albania|Slovenia|Danimarca|Serbia|Polonia|Ucraina|Slovacchia|Romania|Georgia'.split('|')))
+FD_NATIONS.update({'Czechia':'Cechia','Korea Republic':'Corea del Sud','Türkiye':'Turchia','USA':'Stati Uniti','United States of America':'Stati Uniti','Congo DR':'RD Congo','Congo':'RD Congo','Cote d’Ivoire':'Costa d’Avorio',"Côte d’Ivoire":'Costa d’Avorio',"Côte d'Ivoire":'Costa d’Avorio','Cabo Verde':'Capo Verde'})
+def football_data(c,cfg,*_):
+ code=cfg['footballDataCode'];national=code in ['WC','EC'];source='https://www.football-data.org/';names={v['name'] for v in c['clubs']};mapping=cfg.get('footballDataTeams',{})
+ def team(t):
+  n=mapping.get(str(t.get('id')))
+  if national:n=FD_NATIONS.get(t.get('name')) or FD_NATIONS.get(t.get('shortName')) or t.get('name')
+  if n not in names:raise ValueError('Squadra da verificare: '+str(t.get('name')))
+  return n
+ payload=fd_get(code,'/matches?season='+str(cfg['season']));events=payload.get('matches',[])
+ if not events:raise ValueError('Calendario vuoto')
+ rounds=collections.OrderedDict();tables=[]
+ for e in events:
+  # Future knockout participants are unknown until qualification; do not invent them.
+  if not e.get('homeTeam',{}).get('id') or not e.get('awayTeam',{}).get('id'):continue
+  home,away=team(e['homeTeam']),team(e['awayTeam']);dt=datetime.datetime.fromisoformat(e['utcDate'].replace('Z','+00:00')).astimezone(ZoneInfo('Europe/Rome'));status=e['status'];score=e['score'];full=score.get('fullTime',{});a,b=full.get('home'),full.get('away');done=status in ['FINISHED','AWARDED'];inplay=status in ['IN_PLAY','PAUSED','EXTRA_TIME','PENALTY_SHOOTOUT'];stage=e.get('stage','');group=e.get('group');isgroup=stage in ['REGULAR_SEASON','LEAGUE_STAGE','GROUP_STAGE']
+  if done and (not isinstance(a,int) or not isinstance(b,int)):raise ValueError('Risultato concluso incompleto')
+  label=('Giornata '+str(e['matchday'])) if stage in ['REGULAR_SEASON','LEAGUE_STAGE','GROUP_STAGE'] else {'LAST_16':'Ottavi di finale','QUARTER_FINALS':'Quarti di finale','SEMI_FINALS':'Semifinali','FINAL':'Finale','LAST_32':'Sedicesimi di finale','THIRD_PLACE':'Finale terzo posto'}.get(stage,stage.replace('_',' ').title())
+  m=dict(home=home,away=away,date=dt.date().isoformat(),time=dt.strftime('%H:%M'),score=f'{a} – {b}' if isinstance(a,int) and isinstance(b,int) and (done or inplay) else '–',played=done,isGroup=isgroup,source=source,statusLabel='PARTITA CONCLUSA' if done else 'IN CORSO · Dati con ritardo' if inplay else {'POSTPONED':'RINVIATA','CANCELLED':'ANNULLATA','SUSPENDED':'SOSPESA'}.get(status,'IN PROGRAMMA'))
+  if group:m['group']=group
+  rounds.setdefault(label,dict(label=label,source=source,sourceLabel='football-data.org',checked=checked(),matches=[]))['matches'].append(m)
+ if not national:
+  p=fd_get(code,'/standings?season='+str(cfg['season']));tables=[g for g in p.get('standings',[]) if g.get('type')=='TOTAL']
+  if not tables:raise ValueError('Classifica non disponibile')
+  rows=[]
+  for g in tables:
+   for r in g['table']:rows.append(dict(name=team(r['team']),position=r['position'],points=r['points'],played=r['playedGames'],wins=r['won'],draws=r['draw'],losses=r['lost'],goalsFor=r['goalsFor'],goalsAgainst=r['goalsAgainst'],difference=r['goalDifference']))
+ else:
+  # Group-only table derived from the provider's match scores; knockout scores do not add league points.
+  rows={n:dict(name=n,position=0,points=0,played=0,wins=0,draws=0,losses=0,goalsFor=0,goalsAgainst=0,difference=0) for n in names};groups=collections.defaultdict(set)
+  for r in rounds.values():
+   for m in r['matches']:
+    if not m['isGroup']:continue
+    groups[m.get('group','Girone')].update([m['home'],m['away']])
+    if not m['played']:continue
+    a,b=map(int,m['score'].split(' – '))
+    for n,gf,ga in [(m['home'],a,b),(m['away'],b,a)]:
+     t=rows[n];t['played']+=1;t['goalsFor']+=gf;t['goalsAgainst']+=ga;t['difference']=t['goalsFor']-t['goalsAgainst'];t['wins']+=gf>ga;t['draws']+=gf==ga;t['losses']+=gf<ga;t['points']+=3 if gf>ga else 1 if gf==ga else 0
+  tables=[]
+  for group,ns in groups.items():
+   ordered=sorted((rows[n] for n in ns),key=lambda t:(-t['points'],-t['difference'],-t['goalsFor'],t['name']))
+   for i,t in enumerate(ordered):t['position']=i+1
+   tables.append({'label':group.replace('GROUP_','Girone '),'standings':ordered})
+  rows=list(rows.values())
+ c['details']={};rs=list(rounds.values())
+ for r in rs:r['matches'].sort(key=lambda m:(m['date'],m['time']))
+ latest=max((i for i,r in enumerate(rs) if any(m['played'] for m in r['matches'])),default=0)
+ c['fixtures']=dict(rs[latest],rounds=rs);c['live']=dict(source=source,sourceLabel='football-data.org',checked=checked(),standings=rows,scorers=[],assists=[],keepers=[])
+ if national:c['live']['groups']=tables
+ c['coverage']={'provider':'football-data','events':'Il piano gratuito non include tabellini dettagliati.','live':'Risultati con ritardo secondo il piano gratuito.'};return c
+
 def main():
  import fcntl
  lock=(ROOT/'updater/.refresh.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
@@ -157,10 +219,10 @@ def main():
  for name,cfg in CFG.items():
   if args.league and name!=args.league:continue
   path=DATA/cfg['file'];old=json.loads(path.read_text());c=json.loads(json.dumps(old));c['coverage']={};state=manifest['competitions'][name];state['lastAttempt']=stamp()
-  if cfg.get('finished'):state.update(state='concluded',lastError=None);continue
+  if cfg.get('finished') and cfg.get('provider')!='football-data':state.update(state='concluded',lastError=None);continue
   try:
    if args.offline_test:raise ConnectionError('Simulated source outage')
-   candidate=espn(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
+   candidate=(football_data if cfg.get("provider")=="football-data" else espn)(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
    print(name,'OK',flush=True)
   except Exception as e:
    fail+=1;state.update(state='error',lastError='Aggiornamento non riuscito; conservati gli ultimi dati verificati.');print(name,type(e).__name__,str(e)[:160],file=sys.stderr,flush=True)
