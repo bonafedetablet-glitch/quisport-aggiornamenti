@@ -29,7 +29,7 @@
   },
   "Premier League": {
     "file": "82367a4c6152dfe1.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2026,
     "finished": false,
     "code": "eng.1",
@@ -51,11 +51,34 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "footballDataCode": "PL",
+    "footballDataTeams": {
+      "65": "Manchester City",
+      "57": "Arsenal",
+      "397": "Brighton",
+      "402": "Brentford",
+      "62": "Everton",
+      "61": "Chelsea",
+      "341": "Leeds",
+      "322": "Hull City",
+      "64": "Liverpool",
+      "349": "Ipswich Town",
+      "67": "Newcastle",
+      "354": "Crystal Palace",
+      "66": "Manchester United",
+      "351": "Nottingham Forest",
+      "58": "Aston Villa",
+      "71": "Sunderland",
+      "1044": "Bournemouth",
+      "73": "Tottenham",
+      "1076": "Coventry",
+      "63": "Fulham"
     }
   },
   "La Liga": {
     "file": "f277f7e2ceff4a48.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2026,
     "finished": false,
     "code": "esp.1",
@@ -77,11 +100,34 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "footballDataCode": "PD",
+    "footballDataTeams": {
+      "81": "Barcellona",
+      "78": "Atletico Madrid",
+      "90": "Real Betis",
+      "86": "Real Madrid",
+      "559": "Siviglia",
+      "92": "Real Sociedad",
+      "263": "Alaves",
+      "560": "Deportivo La Coruna",
+      "558": "Celta Vigo",
+      "77": "Athletic Bilbao",
+      "94": "Villarreal",
+      "80": "Espanyol",
+      "87": "Rayo Vallecano",
+      "82": "Getafe",
+      "5335": "Racing Santander",
+      "79": "Osasuna",
+      "285": "Elche",
+      "88": "Levante",
+      "95": "Valencia",
+      "84": "Malaga"
     }
   },
   "Bundesliga": {
     "file": "66e0e0373f41e2c5.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2026,
     "finished": false,
     "code": "ger.1",
@@ -103,11 +149,32 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "footballDataCode": "BL1",
+    "footballDataTeams": {
+      "17": "Friburgo",
+      "4": "Borussia Dortmund",
+      "5": "Bayern Monaco",
+      "3": "Bayer Leverkusen",
+      "721": "Lipsia",
+      "16": "Augsburg",
+      "12": "Werder Brema",
+      "15": "Mainz 05",
+      "719": "Elversberg",
+      "1": "Colonia",
+      "10": "Stoccarda",
+      "7": "Amburgo",
+      "6": "Schalke 04",
+      "19": "Eintracht Frankfurt",
+      "29": "Paderborn",
+      "28": "Union Berlino",
+      "2": "Hoffenheim",
+      "18": "Borussia Monc."
     }
   },
   "Ligue 1": {
     "file": "3d34baf899309349.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2026,
     "finished": false,
     "code": "fra.1",
@@ -129,11 +196,32 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "footballDataCode": "FL1",
+    "footballDataTeams": {
+      "548": "Monaco",
+      "521": "Lille",
+      "529": "Rennes",
+      "523": "Lione",
+      "1045": "Paris Fc",
+      "524": "Paris S.G.",
+      "512": "Brest",
+      "525": "Lorient",
+      "522": "Nizza",
+      "546": "Lens",
+      "576": "Strasburgo",
+      "532": "Angers",
+      "516": "Marsiglia",
+      "535": "Le Mans",
+      "511": "Tolosa",
+      "519": "Auxerre",
+      "531": "Troyes",
+      "533": "Le Havre"
     }
   },
   "Champions League": {
     "file": "4bd51e39ca2ac015.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2026,
     "finished": false,
     "code": "uefa.champions",
@@ -155,6 +243,45 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "footballDataCode": "CL",
+    "footballDataTeams": {
+      "524": "Paris S.G.",
+      "5": "Bayern Monaco",
+      "81": "Barcellona",
+      "66": "Manchester United",
+      "7397": "Como",
+      "498": "Sporting CP",
+      "10": "Stoccarda",
+      "65": "Manchester City",
+      "58": "Aston Villa",
+      "546": "Lens",
+      "90": "Real Betis",
+      "4": "Borussia Dortmund",
+      "64": "Liverpool",
+      "86": "Real Madrid",
+      "57": "Arsenal",
+      "1899": "AEK Athens",
+      "100": "Roma",
+      "1887": "Shakhtar Donetsk",
+      "613": "Fenerbahce",
+      "674": "PSV Eindhoven",
+      "94": "Villarreal",
+      "851": "Club Brugge",
+      "521": "Lille",
+      "930": "Slavia Prague",
+      "78": "Atletico Madrid",
+      "108": "Inter",
+      "2016": "LASK Linz",
+      "113": "Napoli",
+      "610": "Galatasaray",
+      "5720": "Viking FK",
+      "503": "FC Porto",
+      "721": "Lipsia",
+      "675": "Feyenoord Rotterdam",
+      "10233": "Sabah FK",
+      "7509": "Slovan Bratislava",
+      "5721": "Bodo/Glimt"
     }
   },
   "Europa League": {
@@ -211,7 +338,7 @@
   },
   "Mondiali": {
     "file": "bd7dc53b97e49264.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2026,
     "finished": true,
     "code": "fifa.world",
@@ -233,11 +360,12 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
-    }
+    },
+    "footballDataCode": "WC"
   },
   "Europei": {
     "file": "03e2c4ffc0ee4350.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2024,
     "finished": true,
     "code": "uefa.euro",
@@ -259,7 +387,8 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
-    }
+    },
+    "footballDataCode": "EC"
   },
   "Nations League": {
     "file": "bfa814178ca6b5fa.json",
@@ -289,7 +418,7 @@
   },
   "Serie A": {
     "file": "918734dfe14ea035.json",
-    "provider": "espn",
+    "provider": "football-data",
     "season": 2026,
     "finished": false,
     "code": "ita.1",
@@ -311,6 +440,29 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "footballDataCode": "SA",
+    "footballDataTeams": {
+      "108": "Inter",
+      "110": "Lazio",
+      "100": "Roma",
+      "104": "Cagliari",
+      "98": "Milan",
+      "109": "Juventus",
+      "7397": "Como",
+      "113": "Napoli",
+      "470": "Frosinone",
+      "471": "Sassuolo",
+      "102": "Atalanta",
+      "5890": "Lecce",
+      "103": "Bologna",
+      "115": "Udinese",
+      "586": "Torino",
+      "5911": "Monza",
+      "107": "Genoa",
+      "112": "Parma",
+      "99": "Fiorentina",
+      "454": "Venezia"
     }
   }
 }
