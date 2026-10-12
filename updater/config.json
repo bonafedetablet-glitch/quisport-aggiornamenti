@@ -1,10 +1,9 @@
 {
   "Serie B": {
     "file": "aa118803c292568d.json",
-    "provider": "espn",
+    "provider": "sportscore",
     "season": 2026,
     "finished": false,
-    "code": "ita.2",
     "aliases": {
       "Internazionale": "Inter",
       "AS Roma": "Roma",
@@ -25,6 +24,12 @@
       "Frosinone": "Frosinone",
       "US Avellino": "Avellino",
       "Vicenza": "L.R. Vicenza"
+    },
+    "sportScoreSlug": "italian-serie-b",
+    "sportScoreTeams": {
+      "ACD Virtus Entella": "Virtus Entella",
+      "Vicenza": "L.R. Vicenza",
+      "SudTirol": "Südtirol"
     }
   },
   "Premier League": {
@@ -351,10 +356,9 @@
   },
   "Conference League": {
     "file": "54ded8193f16459a.json",
-    "provider": "espn",
+    "provider": "sportscore",
     "season": 2026,
     "finished": false,
-    "code": "uefa.europa.conf",
     "aliases": {
       "Internazionale": "Inter",
       "AS Roma": "Roma",
@@ -373,6 +377,33 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "sportScoreSlug": "uefa-europa-conference-league",
+    "sportScoreTeams": {
+      "AFC Ajax": "Ajax Amsterdam",
+      "AS Monaco": "Monaco",
+      "Aarhus AGF": "AGF",
+      "Brann": "SK Brann",
+      "Brighton Hove Albion": "Brighton",
+      "CS Universitatea Craiova": "CSU Craiova",
+      "Crvena Zvezda": "Red Star Belgrade",
+      "FC Copenhagen": "F.C. København",
+      "FC Iberia 1999 Tbilisi": "Iberia 1999",
+      "FC Kairat Almaty": "Kairat Almaty",
+      "FC Twente Enschede": "FC Twente",
+      "FK Jablonec": "Jablonec",
+      "Heart of Midlothian F.C.": "Heart of Midlothian",
+      "Inter Club d'Escaldes": "Inter D'Escaldes",
+      "KuPs": "KuPS Kuopio",
+      "Lincoln Red Imps FC": "Lincoln Red Imps",
+      "Lugano": "FC Lugano",
+      "Midtjylland": "FC Midtjylland",
+      "Mjallby AIF": "Mjällby AIF",
+      "Nordsjaelland": "FC Nordsjælland",
+      "Pafos FC": "Pafos",
+      "SC Freiburg": "Friburgo",
+      "Sporting Braga": "Braga",
+      "Thun": "FC Thun"
     }
   },
   "Mondiali": {
@@ -431,10 +462,9 @@
   },
   "Nations League": {
     "file": "bfa814178ca6b5fa.json",
-    "provider": "espn",
+    "provider": "sportscore",
     "season": 2026,
     "finished": false,
-    "code": "uefa.nations",
     "aliases": {
       "Internazionale": "Inter",
       "AS Roma": "Roma",
@@ -453,6 +483,50 @@
       "FC Barcelona": "Barcellona",
       "Juventus": "Juventus",
       "Frosinone": "Frosinone"
+    },
+    "sportScoreSlug": "uefa-nations-league",
+    "sportScoreTeams": {
+      "Azerbaijan": "Azerbaigian",
+      "Belarus": "Bielorussia",
+      "Belgium": "Belgio",
+      "Bosnia and Herzegovina": "Bosnia-Herzegovina",
+      "Croatia": "Croazia",
+      "Cyprus": "Cipro",
+      "Czechia": "Cechia",
+      "Denmark": "Danimarca",
+      "England": "Inghilterra",
+      "Faroe Islands": "Isole Faroe",
+      "Finland": "Finlandia",
+      "France": "Francia",
+      "Germany": "Germania",
+      "Greece": "Grecia",
+      "Hungary": "Ungheria",
+      "Iceland": "Islanda",
+      "Ireland": "Irlanda",
+      "Israel": "Israele",
+      "Italy": "Italia",
+      "Kazakhstan": "Kazakistan",
+      "Latvia": "Lettonia",
+      "Lithuania": "Lituania",
+      "Luxembourg": "Lussemburgo",
+      "Moldova": "Moldavia",
+      "Netherlands": "Paesi Bassi",
+      "North Macedonia": "Macedonia del Nord",
+      "Northern Ireland": "Irlanda del Nord",
+      "Norway": "Norvegia",
+      "Poland": "Polonia",
+      "Portugal": "Portogallo",
+      "Romania": "Romania",
+      "Scotland": "Scozia",
+      "Slovakia": "Slovacchia",
+      "Slovenia": "Slovenia",
+      "Spain": "Spagna",
+      "Sweden": "Svezia",
+      "Switzerland": "Svizzera",
+      "Turkiye": "Turchia",
+      "Ukraine": "Ucraina",
+      "Wales": "Galles",
+      "Gibraltar": "Gibilterra"
     }
   },
   "Serie A": {
