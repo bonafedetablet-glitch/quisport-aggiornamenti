@@ -146,68 +146,21 @@ def espn(c,cfg,rosters=False):
    except Exception:c['coverage']['rosters']='Alcune rose conservano l’ultima versione verificata.'
  return c
 
-# Public Calciotel pages: exact source links, no fuzzy team matching, no restricted fields.
-def clean(s):return re.sub(r'\s+',' ',html.unescape(re.sub('<[^>]+>',' ',s))).strip()
-def calciotel(c,cfg,rosters=False):
- url=cfg['url'];text=fetch(url);sc=fetch(url.replace('/campionato/','/classifica-marcatori/'));aliases={};rows=[];links={}
- aliases.update(cfg.get('calendarAliases',{}))
- tables=re.findall(r'<table\b.*?</table>',text,re.S);assert tables,'Classifica non disponibile'
- for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>',tables[0],re.S):
-  cells=re.findall(r'<td\b[^>]*>(.*?)</td>',row,re.S)
-  if len(cells)!=10:continue
-  a=re.search(r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>',cells[1],re.S);assert a
-  link='https://scoutingweb.calciotel.it'+a[1];raw=clean(a[2]);candidates=[x for x in c['clubs'] if x.get('source','').split('/')[-2:-1]==link.split('/')[-2:-1]]
-  if not candidates:candidates=[x for x in c['clubs'] if norm(x['name'])==norm(raw)]
-  assert len(candidates)==1,'Identità squadra da verificare: '+raw;name=candidates[0]['name'];aliases[raw.upper()]=name;links[name]=link;vals=[int(clean(v)) for v in [cells[0],*cells[2:]]];rows.append(dict(zip(['position','points','played','wins','draws','losses','goalsFor','goalsAgainst','difference'],vals),name=name))
- rounds=collections.defaultdict(dict)
- def team(job):
-  name,link=job;s=fetch(link);assert 'Calendario e Risultati' in s;section=s.split('Calendario e Risultati',1)[1].split('</table>',1)[0];out=[]
-  for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>',section,re.S):
-   cells=re.findall(r'<td\b[^>]*>(.*?)</td>',row,re.S)
-   if len(cells)<4:continue
-   rn,date,teams,score=map(clean,cells[:4])
-   if not rn.isdigit() or ' - ' not in teams:continue
-   h,a=teams.split(' - ',1);assert h.upper() in aliases and a.upper() in aliases,'Nome calendario da verificare: '+h+' / '+a;parts=date.split('/');assert len(parts)==2;dt=datetime.date(cfg['season'] if int(parts[1])>=7 else cfg['season']+1,int(parts[1]),int(parts[0]));played=bool(re.fullmatch(r'\d+\s*-\s*\d+',score));out.append((int(rn),dict(home=aliases[h.upper()],away=aliases[a.upper()],date=str(dt),time='Orario non pubblicato',played=played,score=re.sub(r'\s*-\s*',' – ',score) if played else '–',source=link)))
-  return out
- with concurrent.futures.ThreadPoolExecutor(3) as pool:
-  for out in pool.map(team,links.items()):
-   for rn,m in out:
-    ident=(m['home'],m['away']);old=rounds[rn].get(ident);assert not old or (old['score'],old['played'])==(m['score'],m['played']),'Fonti squadra discordanti';rounds[rn][ident]=m
- oldmap={(m['home'],m['away']):m for r in c['fixtures']['rounds'] for m in r['matches']}
- for ms in rounds.values():
-  for pair,m in ms.items():
-   old=oldmap.get(pair,{})
-   if (old.get('date'),old.get('score'))==(m['date'],m['score']):
-    for field in ['time','note','field','statusLabel']: 
-     if field in old:m[field]=old[field]
- data=[dict(source=url,sourceLabel='Calciotel',checked=checked(),label='Giornata '+str(rn),matches=sorted(ms.values(),key=lambda m:(m['date'],m['time']))) for rn,ms in sorted(rounds.items())];assert data
- latest=max((i for i,r in enumerate(data) if any(m['played'] for m in r['matches'])),default=0);c['fixtures']=dict(**data[latest],rounds=data);leaders=[]
- for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>',sc,re.S):
-  cells=re.findall(r'<td\b[^>]*>(.*?)</td>',row,re.S)
-  if len(cells)!=2 or not clean(cells[0]).isdigit():continue
-  for name,club in re.findall(r'<span class="font-bold uppercase text-gray-900">(.*?)</span>\s*<span[^>]*>\(<a[^>]*>(.*?)</a>\)</span>',cells[1],re.S):
-   cl=aliases.get(clean(club).upper());assert cl,'Marcatore con squadra sconosciuta';leaders.append(dict(name=clean(name).title(),club=cl,goals=int(clean(cells[0]))))
- assert leaders or not any(t['goalsFor'] for t in rows),'Classifica marcatori incompleta'
- c['live'].update(source=url,sourceLabel='Calciotel',checked=checked(),standings=rows,scorers=leaders)
- # Remove obsolete match events after a correction, retain untouched verified events.
- for r in data:
-  for m in r['matches']:
-   key='|'.join([c['name'],m['date'],m['home'],m['away']]);d=c['details'].get(key)
-   if d and (not m['played'] or [sum(x[1]==m[h] for x in d['goals']) for h in ['home','away']]!=list(map(int,m['score'].split(' – ')))):c['details'].pop(key,None)
- c['coverage'].update(events='Marcatori della singola partita solo quando disponibili e verificati; non dedotti dalla classifica generale.',rosters='Rose e foto conservate dall’ultima verifica manuale per C e D.')
- return c
-
 def main():
  import fcntl
  lock=(ROOT/'updater/.refresh.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
  ap=argparse.ArgumentParser();ap.add_argument('--league');ap.add_argument('--rosters',action='store_true');ap.add_argument('--offline-test',action='store_true');args=ap.parse_args();manifest=json.loads((DATA/'manifest.json').read_text());fail=0
+ manifest['competitions']={name:state for name,state in manifest['competitions'].items() if name in CFG}
+ for snapshot in DATA.glob('*.json'):
+  if snapshot.name=='manifest.json':continue
+  if re.match(r'^Serie [CD](?:$| ·)',json.loads(snapshot.read_text()).get('name','')):snapshot.unlink()
  for name,cfg in CFG.items():
   if args.league and name!=args.league:continue
   path=DATA/cfg['file'];old=json.loads(path.read_text());c=json.loads(json.dumps(old));c['coverage']={};state=manifest['competitions'][name];state['lastAttempt']=stamp()
   if cfg.get('finished'):state.update(state='concluded',lastError=None);continue
   try:
    if args.offline_test:raise ConnectionError('Simulated source outage')
-   candidate=(espn if cfg['provider']=='espn' else calciotel)(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
+   candidate=espn(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
    print(name,'OK',flush=True)
   except Exception as e:
    fail+=1;state.update(state='error',lastError='Aggiornamento non riuscito; conservati gli ultimi dati verificati.');print(name,type(e).__name__,str(e)[:160],file=sys.stderr,flush=True)
