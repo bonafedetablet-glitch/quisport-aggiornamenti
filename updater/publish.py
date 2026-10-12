@@ -13,7 +13,12 @@ def publish(send=None):
  for state in manifest['competitions'].values():
   filename=state['file']
   if len(filename)!=21 or not filename.endswith('.json') or any(c not in '0123456789abcdef' for c in filename[:16]):raise ValueError('Invalid snapshot filename')
-  body=(data/filename).read_bytes();version=hashlib.sha256(body).hexdigest()[:16]+'.json'
+  body=(data/filename).read_bytes()
+  if state.get('provider')=='openligadb':
+   extra=json.loads(body)['coverage']['openDataFile'];export=(data/extra).read_bytes()
+   if hashlib.sha256(export).hexdigest()[:16]+'.json'!=extra:raise ValueError('Invalid open database checksum')
+   send(extra,export)
+  version=hashlib.sha256(body).hexdigest()[:16]+'.json'
   send(version,body);state['file']=version
  manifest.update(schedulerReady=True,publishedAt=datetime.datetime.now(datetime.timezone.utc).isoformat(),intervalMinutes=60)
  send('manifest.json',json.dumps(manifest,ensure_ascii=False,separators=(',',':')).encode())
