@@ -199,7 +199,7 @@ def football_data(c,cfg,*_):
   for group,ns in groups.items():
    ordered=sorted((rows[n] for n in ns),key=lambda t:(-t['points'],-t['difference'],-t['goalsFor'],t['name']))
    for i,t in enumerate(ordered):t['position']=i+1
-   tables.append({'label':group.replace('GROUP_','Girone '),'standings':ordered})
+   tables.append({'name':group.replace('GROUP_','Girone '),'rows':ordered})
   rows=list(rows.values())
  c['details']={};rs=list(rounds.values())
  for r in rs:r['matches'].sort(key=lambda m:(m['date'],m['time']))
