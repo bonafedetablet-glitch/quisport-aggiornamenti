@@ -1,4 +1,4 @@
-"""Public-source updater. Atomic per-competition commits; no credentials required.
+"""Sports-data updater. Atomic per-competition commits; credentials stay in env.
 Run from any directory: python3 updater/refresh.py [--league NAME] [--rosters] [--offline-test]
 Cloud scheduling is supplied by the host, not the visitor's browser.
 """
@@ -208,6 +208,37 @@ def football_data(c,cfg,*_):
  if national:c['live']['groups']=tables
  c['coverage']={'provider':'football-data','events':'Il piano gratuito non include tabellini dettagliati.','live':'Risultati con ritardo secondo il piano gratuito.'};return c
 
+# OpenLigaDB: community-maintained Europa League data, ODbL 1.0.
+def openliga(c,cfg,*_):
+ import hashlib
+ code=cfg['openLigaCode'];season=cfg['season'];base='https://api.openligadb.de/';source='https://www.openligadb.de/';license_url='https://opendatacommons.org/licenses/odbl/1-0/';mapping=cfg['openLigaTeams'];names={v['name'] for v in c['clubs']}
+ def team(i):
+  n=mapping.get(str(i))
+  if n not in names:raise ValueError('Squadra OpenLigaDB da verificare: '+str(i))
+  return n
+ events=get(base+'getmatchdata/'+code+'/'+str(season));table=get(base+'getbltable/'+code+'/'+str(season))
+ if not events or not table:raise ValueError('Dati OpenLigaDB incompleti')
+ rounds={}
+ for e in events:
+  if e.get('leagueShortcut')!=code or e.get('leagueSeason')!=season:raise ValueError('Stagione OpenLigaDB non corrispondente')
+  home,away=team(e['team1']['teamId']),team(e['team2']['teamId']);dt=datetime.datetime.fromisoformat(e['matchDateTimeUTC'].replace('Z','+00:00')).astimezone(ZoneInfo('Europe/Rome'));done=e['matchIsFinished'];result=next((r for r in e['matchResults'] if r['resultTypeID']==2),None)
+  if done and not result:raise ValueError('Risultato finale OpenLigaDB mancante')
+  num=e['group']['groupOrderID'];label='Giornata '+str(num)
+  if not 1<=num<=8:raise ValueError('Nuova fase Europa League: verificare formato')
+  score=f"{result['pointsTeam1']} – {result['pointsTeam2']}" if done else '–'
+  match=dict(home=home,away=away,date=dt.date().isoformat(),time=dt.strftime('%H:%M'),score=score,played=done,isGroup=True,source=source,statusLabel='PARTITA CONCLUSA' if done else 'IN PROGRAMMA')
+  rounds.setdefault(num,dict(label=label,source=source,sourceLabel='OpenLigaDB',checked=checked(),matches=[]))['matches'].append(match)
+ rs=[rounds[n] for n in sorted(rounds)]
+ for r in rs:r['matches'].sort(key=lambda m:(m['date'],m['time'],m['home']))
+ rows=[dict(name=team(r['teamInfoId']),position=i+1,points=r['points'],played=r['matches'],wins=r['won'],draws=r['draw'],losses=r['lost'],goalsFor=r['goals'],goalsAgainst=r['opponentGoals'],difference=r['goalDiff']) for i,r in enumerate(table)]
+ latest=max((i for i,r in enumerate(rs) if any(m['played'] for m in r['matches'])),default=0)
+ live=dict(source=source,sourceLabel='OpenLigaDB',checked=checked(),standings=rows,scorers=[],assists=[],keepers=[],license=license_url)
+ fixtures=dict(rs[latest],rounds=rs)
+ # Offer only the adapted OpenLigaDB database; club profiles and imagery are separate.
+ exported=dict(name=c['name'],season=season,source=source,license=license_url,notice='Contains information from OpenLigaDB, available under the Open Database License (ODbL) 1.0. QuiSport adaptations: Italian team names and dates in Europe/Rome. Images and club profiles excluded.',standings=rows,rounds=[dict(label=r['label'],matches=r['matches']) for r in rs])
+ body=json.dumps(exported,ensure_ascii=False,separators=(',',':')).encode();filename=hashlib.sha256(body).hexdigest()[:16]+'.json';atomic(DATA/filename,exported);live['openDataFile']=filename
+ c.update(fixtures=fixtures,live=live,details={},coverage=dict(provider='openligadb',events='Tabellini individuali non collegati.',live='Aggiornamento periodico da fonte comunitaria; nessuna diretta minuto per minuto.',openDataFile=filename,license=license_url));return c
+
 def main():
  import fcntl
  lock=(ROOT/'updater/.refresh.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
@@ -222,7 +253,7 @@ def main():
   if cfg.get('finished') and cfg.get('provider')!='football-data':state.update(state='concluded',lastError=None);continue
   try:
    if args.offline_test:raise ConnectionError('Simulated source outage')
-   candidate=(football_data if cfg.get("provider")=="football-data" else espn)(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
+   candidate=({"football-data":football_data,"openligadb":openliga}.get(cfg.get("provider"),espn))(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
    print(name,'OK',flush=True)
   except Exception as e:
    fail+=1;state.update(state='error',lastError='Aggiornamento non riuscito; conservati gli ultimi dati verificati.');print(name,type(e).__name__,str(e)[:160],file=sys.stderr,flush=True)
