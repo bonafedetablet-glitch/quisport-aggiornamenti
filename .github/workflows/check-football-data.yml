@@ -1,0 +1,46 @@
+name: Verifica Football Data
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verifica:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verifica accesso, stagioni e copertura
+        env:
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+        run: |
+          python3 - <<'PYTHON'
+          import os, json, time, urllib.request, urllib.error
+          token = os.environ.get('FOOTBALL_DATA_TOKEN', '').strip()
+          if not token:
+              raise SystemExit('Secret FOOTBALL_DATA_TOKEN mancante')
+          report = []
+          for code in ['SA', 'PL', 'PD', 'BL1', 'FL1', 'CL', 'WC', 'EC']:
+              item = {'code': code}
+              for resource in ['', '/standings', '/matches']:
+                  request = urllib.request.Request('https://api.football-data.org/v4/competitions/' + code + resource, headers={'X-Auth-Token': token, 'User-Agent': 'QuiSport/1.0'})
+                  try:
+                      with urllib.request.urlopen(request, timeout=30) as response:
+                          data = json.load(response)
+                      if not resource:
+                          item.update(name=data.get('name'), season=data.get('currentSeason'))
+                      elif resource == '/standings':
+                          item['standings'] = [{'type': group.get('type'), 'group': group.get('group'), 'teams': [{'id': row['team']['id'], 'name': row['team']['name'], 'played': row['playedGames']} for row in group.get('table', [])]} for group in data.get('standings', [])]
+                      else:
+                          item['matches'] = len(data.get('matches', []))
+                          item['statuses'] = sorted(set(m.get('status', '') for m in data.get('matches', [])))
+                  except urllib.error.HTTPError as error:
+                      item[resource or 'competition'] = {'httpError': error.code}
+                  except Exception as error:
+                      item[resource or 'competition'] = {'errorType': type(error).__name__}
+                  time.sleep(7)
+              report.append(item)
+              print(json.dumps(item, ensure_ascii=False), flush=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('# Verifica Football Data\n\n```json\n' + json.dumps(report, ensure_ascii=False, indent=2) + '\n```\n')
+          if any(item.get('competition', {}).get('httpError') in [401, 403] for item in report):
+              raise SystemExit('Verificare attivazione o permessi della chiave')
+          PYTHON
