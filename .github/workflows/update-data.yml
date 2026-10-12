@@ -7,7 +7,7 @@ on:
         required: false
         default: ''
       rosters:
-        description: 'Aggiorna anche le rose ESPN'
+        description: 'Controllo completo dei dati disponibili'
         type: boolean
         default: false
   schedule:
@@ -26,6 +26,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Escludi le vecchie rose dai file pubblici
+        run: |
+          python3 - <<'PYDATA'
+          import json,pathlib
+          for path in pathlib.Path('dist/data').glob('*.json'):
+              value=json.loads(path.read_text())
+              if value.get('schema')==1 and isinstance(value.get('clubs'),list):
+                  value['clubs']=[{**{k:c[k] for k in ['name','slug','group','season'] if k in c},'players':[],'source':'','sourceLabel':'','checked':''} for c in value['clubs']]
+                  path.write_text(json.dumps(value,ensure_ascii=False,separators=(',',':')))
+          PYDATA
+          # Stage only cleaned historical seeds before fetching SportScore data.
+          git add dist/data/aa118803c292568d.json dist/data/54ded8193f16459a.json dist/data/bfa814178ca6b5fa.json
       - name: Aggiorna e conserva le ultime versioni valide
         id: update
         continue-on-error: true
