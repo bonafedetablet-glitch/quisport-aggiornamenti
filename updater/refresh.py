@@ -6,6 +6,10 @@ from pathlib import Path
 import argparse,collections,concurrent.futures,datetime,html,json,os,re,sys,tempfile,time,unicodedata,urllib.request
 from zoneinfo import ZoneInfo
 ROOT=Path(__file__).resolve().parents[1];DATA=ROOT/'dist/data';CFG=json.loads((ROOT/'updater/config.json').read_text());NOW=datetime.datetime.now(datetime.timezone.utc);TODAY=NOW.astimezone(ZoneInfo('Europe/Rome')).date()
+def clear_unlicensed_clubs(c):
+ c['clubs']=[{**{k:v[k] for k in ['name','slug','group','season'] if k in v},'players':[],'source':'','sourceLabel':'','checked':''} for v in c['clubs']]
+ return c
+
 def stamp():return datetime.datetime.now(datetime.timezone.utc).isoformat()
 def norm(n):return re.sub('[^a-z0-9]','',unicodedata.normalize('NFKD',n).encode('ascii','ignore').decode().lower())
 def atomic(path,data):
@@ -77,74 +81,6 @@ def aggregate(c):
  # Do not erase a verified keeper table when older imported summaries lack keeper rows.
  if len([d for d in c['details'].values() if 'keepers' in d])==count:c['live']['keepers']=sorted(keepers.values(),key=lambda p:(-p['cleanSheets'],p['conceded']))
  else:c['coverage']['keepers']='Ultima classifica verificata; ricostruzione dai tabellini non ancora completa.'
-
-def espn(c,cfg,rosters=False):
- months=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre']
- for r in c['fixtures']['rounds']:
-  for m in r['matches']:
-   if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',m['date']):
-    bits=m['date'].split(',')[-1].strip().split();assert len(bits)==3 and bits[1] in months,'Data da verificare';oldkey='|'.join([c['name'],m['date'],m['home'],m['away']]);m['date']=str(datetime.date(int(bits[2]),months.index(bits[1])+1,int(bits[0])));newkey='|'.join([c['name'],m['date'],m['home'],m['away']])
-    if oldkey in c['details']:c['details'][newkey]=c['details'].pop(oldkey)
- code=cfg['code'];year=cfg['season'];base='https://site.api.espn.com/apis/site/v2/sports/soccer/'+code;ids={str(x['espnId']):x['name'] for x in c['clubs'] if x.get('espnId')};aliases={norm(k):v for k,v in cfg.get('aliases',{}).items()};byn={norm(x['name']):x['name'] for x in c['clubs']}
- standings=get(f'https://site.web.api.espn.com/apis/v2/sports/soccer/{code}/standings?season={year}');groups=[];rows=[]
- for group in standings['children']:
-  gr=[]
-  for r in group['standings']['entries']:
-   t=r['team'];name=ids.get(t['id']) or aliases.get(norm(t['displayName'])) or byn.get(norm(t['displayName']));assert name in byn.values(),'Partecipante non riconosciuto: '+t['displayName'];ids[t['id']]=name
-   next(x for x in c['clubs'] if x['name']==name)['espnId']=t['id'];st={v['name']:int(v.get('value',0)) for v in r['stats']};record={dest:st[src] for src,dest in [('rank','position'),('points','points'),('gamesPlayed','played'),('wins','wins'),('ties','draws'),('losses','losses'),('pointsFor','goalsFor'),('pointsAgainst','goalsAgainst'),('pointDifferential','difference')]};record['name']=name;rows.append(record);gr.append(record)
-  groups.append(dict(name=group['name'].replace('Group','Girone'),rows=gr))
- old={m['eventId']:m for r in c['fixtures']['rounds'] for m in r['matches'] if m.get('eventId')};matches=[m for r in c['fixtures']['rounds'] for m in r['matches']];dates={TODAY+datetime.timedelta(days=n) for n in range(-2,3)}
- # Catch up all overdue unplayed fixtures even after a prolonged outage.
- dates|={datetime.date.fromisoformat(m['date']) for m in matches if not m['played'] and m['date']<=str(TODAY)}
- if rosters:dates|={datetime.date.fromisoformat(m['date']) for m in matches if m['played'] and 'keepers' not in c['details'].get('|'.join([c['name'],m['date'],m['home'],m['away']]),{})}
- events={}
- for date in sorted(dates):
-  p=get(base+'/scoreboard?dates='+date.strftime('%Y%m%d')+'&limit=1000')
-  for e in p.get('events',[]):events[e['id']]=e
- for eid,e in events.items():
-  if int(e.get('season',{}).get('year',year))!=year:continue
-  comp=e['competitions'][0];ts={x['homeAway']:x for x in comp['competitors']}
-  if any(t['id'] not in ids for t in ts.values()):continue
-  m=old.get(eid)
-  if not m:
-   found=[x for x in matches if x['home']==ids[ts['home']['id']] and x['away']==ids[ts['away']['id']]];assert len(found)==1,'Nuova partita: verifica della fase necessaria';m=found[0];m['eventId']=eid
-  oldkey='|'.join([c['name'],m['date'],m['home'],m['away']]);prior=(m['score'],m['played']);dt=datetime.datetime.fromisoformat(e['date'].replace('Z','+00:00')).astimezone(ZoneInfo('Europe/Rome'));status=comp['status']['type'];complete=status['completed'];state=status['state'];score=lambda h:str(int(float(ts[h]['score'].get('value',0)))) if isinstance(ts[h].get('score'),dict) else str(ts[h].get('score','0'))
-  m.update(date=dt.strftime('%Y-%m-%d'),time=dt.strftime('%H:%M') if comp.get('timeValid',True) else 'Orario da confermare',played=complete,score=score('home')+' – '+score('away') if complete or state=='in' else '–',source='https://www.espn.com/soccer/match/_/gameId/'+eid)
-  m['statusLabel']='PARTITA CONCLUSA' if complete else ('IN CORSO · '+status.get('shortDetail','') if state=='in' else 'IN PROGRAMMA')
-  if status['name'] not in ['STATUS_FULL_TIME','STATUS_SCHEDULED'] and state!='in':m['statusLabel']=status.get('description',status['name'])
-  key='|'.join([c['name'],m['date'],m['home'],m['away']])
-  if complete and (key not in c['details'] or prior!=(m['score'],complete) or (TODAY-dt.date()).days<=2 or (rosters and 'keepers' not in c['details'].get(key,{}))):
-   try:
-    p=get(base+'/summary?event='+eid);d=parse_detail(p,m,ids);ks=[]
-    for roster in p.get('rosters',[]):
-     name=ids.get(roster['team']['id'])
-     for a in roster.get('roster',[]):
-      st={v['name']:v.get('value',0) for v in a.get('stats',[])}
-      if name and a.get('position',{}).get('abbreviation')=='G' and st.get('appearances'):ks.append(dict(name=a['athlete']['displayName'],club=name,conceded=int(st.get('goalsConceded',0)),saves=int(st.get('saves',0)),games=1,cleanSheets=int(st.get('goalsConceded',0)==0 and a.get('starter') and not a.get('subbedOut'))))
-    d['keepers']=ks;c['details'].pop(oldkey,None);c['details'][key]=d
-   except Exception:
-    # Old events are only retained if they still match the new score/date.
-    prior_d=c['details'].get(oldkey)
-    if prior_d and [sum(x[1]==m[h] for x in prior_d['goals']) for h in ['home','away']]!=list(map(int,m['score'].split(' – '))):c['details'].pop(oldkey,None)
-    c['coverage']['events']='Uno o più tabellini in attesa di dati completi.'
-  elif not complete:c['details'].pop(oldkey,None)
- for r in c['fixtures']['rounds']:r.update(source='https://www.espn.com/soccer/fixtures/_/league/'+code,sourceLabel='ESPN',checked=checked());r['matches'].sort(key=lambda m:(m['date'],m['time']))
- latest=max((i for i,r in enumerate(c['fixtures']['rounds']) if any(m['played'] for m in r['matches'])),default=0);c['fixtures'].update(**c['fixtures']['rounds'][latest]);c['live'].update(standings=rows,sourceLabel='ESPN',source=f'https://www.espn.com/soccer/table/_/league/{code}/season/{year}',scorerSource=f'https://www.espn.com/soccer/stats/_/league/{code}/season/{year}',checked=checked())
- if c['name']=='Nations League':c['live']['groups']=groups
- aggregate(c)
- if rosters:
-  for club in c['clubs']:
-   try:
-    p=get(base+f'/teams/{club["espnId"]}/roster?season={year}');previous={str(v.get('espnId')):v for v in club['players']};out=[]
-    for a in p.get('athletes',[]):
-     role={'G':'1','D':'2','M':'3','F':'4'}.get(a.get('position',{}).get('abbreviation'))
-     if not role:continue
-     dob=a.get('dateOfBirth','')[:10];prior=previous.get(a['id'],{});matches=[v for v in club['players'] if norm(v.get('shortName',''))==norm(a['displayName']) and v.get('dateOfBirth','')[:10]==dob];prior=prior or (matches[0] if len(matches)==1 else {});v=dict(shortName=a['displayName'],role=role,bibNumber=a.get('jersey',''),dateOfBirth=dob,espnId=a['id'],nationality=a.get('citizenshipCountry',{}).get('abbreviation',''),photo='',height=round(a['height']*2.54) if a.get('height') else '',weight=round(a['weight']*.453592) if a.get('weight') else '')
-     if prior.get('dateOfBirth','')[:10]==dob:v.update({k:w for k,w in prior.items() if k.startswith('photo')})
-     out.append(v)
-    assert 11<=len(out)<=80,'Rosa incompleta';club.update(players=out,checked=checked(),sourceLabel='ESPN',source=f'https://www.espn.com/soccer/team/squad/_/id/{club["espnId"]}/season/{year}')
-   except Exception:c['coverage']['rosters']='Alcune rose conservano l’ultima versione verificata.'
- return c
 
 # Football-Data.org: authenticated server-side access, at most 8.5 requests/minute.
 _fd_last=0
@@ -314,7 +250,11 @@ def sportscore(c,cfg,*_):
 def main():
  import fcntl
  lock=(ROOT/'updater/.refresh.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
- ap=argparse.ArgumentParser();ap.add_argument('--league');ap.add_argument('--rosters',action='store_true');ap.add_argument('--offline-test',action='store_true');args=ap.parse_args();manifest=json.loads((DATA/'manifest.json').read_text());fail=0
+ ap=argparse.ArgumentParser();ap.add_argument('--league');ap.add_argument('--rosters',action='store_true');ap.add_argument('--offline-test',action='store_true');args=ap.parse_args();
+ for seed in DATA.glob('*.json'):
+  value=json.loads(seed.read_text())
+  if value.get('schema')==1 and isinstance(value.get('clubs'),list):atomic(seed,clear_unlicensed_clubs(value))
+ manifest=json.loads((DATA/'manifest.json').read_text());fail=0
  manifest['competitions']={name:state for name,state in manifest['competitions'].items() if name in CFG}
  for snapshot in DATA.glob('*.json'):
   if snapshot.name=='manifest.json':continue
@@ -333,7 +273,7 @@ def main():
     if old.get('name')!=name:raise ValueError('Snapshot precedente non valido')
     atomic(path,old);c=json.loads(json.dumps(old))
    if args.offline_test:raise ConnectionError('Simulated source outage')
-   candidate=({"football-data":football_data,"openligadb":openliga,"sportscore":sportscore}[cfg["provider"]])(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
+   candidate=({"football-data":football_data,"openligadb":openliga,"sportscore":sportscore}[cfg["provider"]])(c,cfg,args.rosters);clear_unlicensed_clubs(candidate);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
    print(name,'OK',flush=True)
   except Exception as e:
    fail+=1;state.update(state='error',lastError='Aggiornamento non riuscito; conservati gli ultimi dati verificati.');print(name,type(e).__name__,str(e)[:160],file=sys.stderr,flush=True)
