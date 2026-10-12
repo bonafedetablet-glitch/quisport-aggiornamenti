@@ -239,6 +239,78 @@ def openliga(c,cfg,*_):
  body=json.dumps(exported,ensure_ascii=False,separators=(',',':')).encode();filename=hashlib.sha256(body).hexdigest()[:16]+'.json';atomic(DATA/filename,exported);live['openDataFile']=filename
  c.update(fixtures=fixtures,live=live,details={},coverage=dict(provider='openligadb',events='Tabellini individuali non collegati.',live='Aggiornamento periodico da fonte comunitaria; nessuna diretta minuto per minuto.',openDataFile=filename,license=license_url));return c
 
+# SportScore API: display permission with attribution; do not commit its datasets.
+def sportscore(c,cfg,*_):
+ from urllib.parse import urlencode
+ source='https://sportscore.com/';slug=cfg['sportScoreSlug'];names={v['name'] for v in c['clubs']};mapping=cfg['sportScoreTeams']
+ def team(n):
+  value=mapping.get(n,n)
+  if value not in names:raise ValueError('Squadra SportScore da verificare: '+n)
+  return value
+ def api(kind,**kw):return get(source+'api/v1/'+kind+'/?'+urlencode(dict(sport='football',**kw)))
+ # Previous fixtures provide routing dates and round labels only. All scores are replaced.
+ index={};dates=set()
+ for r in c['fixtures']['rounds']:
+  for m in r['matches']:
+   key=(m['home'],m['away'])
+   if key in index:raise ValueError('Nuova fase: verificare le partite ripetute')
+   index[key]=(r['label'],m.get('group'));dates.add(m['date'])
+ for offset in range(-2,3):dates.add((TODAY+datetime.timedelta(days=offset)).isoformat())
+ def day(date):
+  data=api('fixtures',date=date,competition=slug,limit=200)
+  if data.get('date')!=date or data.get('sport')!='football' or data.get('count')!=len(data.get('matches',[])) or data['count']>=200:raise ValueError('Risposta calendario incompleta')
+  time.sleep(.15)
+  return data['matches']
+ with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:events=[m for batch in pool.map(day,sorted(dates)) for m in batch]
+ rounds={label:dict(label=label,source=source,sourceLabel='SportScore',checked=checked(),matches=[]) for label in dict.fromkeys(v[0] for v in index.values())};seen=set()
+ for e in events:
+  home,away=team(e['home']),team(e['away']);key=(home,away)
+  if key not in index:raise ValueError('Nuova partita/fase: verificare calendario SportScore')
+  if key in seen:raise ValueError('Partita duplicata SportScore')
+  seen.add(key);label,group=index[key];dt=datetime.datetime.fromisoformat(e['time']).astimezone(ZoneInfo('Europe/Rome'))
+  if not cfg['season']<=dt.year<=cfg['season']+1:raise ValueError('Stagione SportScore non corrispondente')
+  status=e['status'];done=status=='finished';inplay=status in ['live','inprogress','in_progress'];a,b=e.get('home_score'),e.get('away_score')
+  if done and (a is None or b is None):raise ValueError('Risultato finale mancante')
+  score=f'{int(a)} – {int(b)}' if (done or inplay) and a is not None and b is not None else '–'
+  m=dict(home=home,away=away,date=dt.date().isoformat(),time=dt.strftime('%H:%M'),score=score,played=done,isGroup=True,source=source,statusLabel='PARTITA CONCLUSA' if done else 'IN CORSO · Aggiornamento periodico' if inplay else 'RINVIATA' if status=='postponed' else 'ANNULLATA' if status=='cancelled' else 'IN PROGRAMMA')
+  if group:m['group']=group
+  rounds[label]['matches'].append(m)
+ if seen!=set(index):raise ValueError('Calendario SportScore incompleto: '+str(len(seen))+'/'+str(len(index)))
+ rs=list(rounds.values())
+ for r in rs:r['matches'].sort(key=lambda m:(m['date'],m['time'],m['home']))
+ groups=[]
+ if c['name']=='Conference League':
+  # This provider's standings include qualifying rounds. Derive only league-stage rows.
+  rows={n:dict(name=n,position=0,points=0,played=0,wins=0,draws=0,losses=0,goalsFor=0,goalsAgainst=0,difference=0) for n in names}
+  for r in rs:
+   for m in r['matches']:
+    if not m['played']:continue
+    a,b=map(int,m['score'].split(' – '))
+    for n,gf,ga in [(m['home'],a,b),(m['away'],b,a)]:
+     t=rows[n];t['played']+=1;t['goalsFor']+=gf;t['goalsAgainst']+=ga;t['difference']=t['goalsFor']-t['goalsAgainst'];t['wins']+=int(gf>ga);t['draws']+=int(gf==ga);t['losses']+=int(gf<ga);t['points']+=3 if gf>ga else 1 if gf==ga else 0
+  rows=sorted(rows.values(),key=lambda t:(-t['points'],-t['difference'],-t['goalsFor'],t['name']))
+  for i,t in enumerate(rows):t['position']=i+1
+ else:
+  payload=api('standings',slug=slug)
+  if payload.get('competition_slug')!=slug:raise ValueError('Classifica di altra competizione')
+  previous_groups={frozenset(t['name'] for t in g['rows']):g['name'] for g in c['live'].get('groups',[])};rows=[]
+  for table in payload['tables']:
+   group_rows=[dict(name=team(t['team']),position=int(t['pos']),points=int(t['pts']),played=int(t['p']),wins=int(t['w']),draws=int(t['d']),losses=int(t['l']),goalsFor=int(t['gf']),goalsAgainst=int(t['ga']),difference=int(t['gd'])) for t in table['rows']]
+   if c['name']=='Nations League':
+    label=previous_groups.get(frozenset(t['name'] for t in group_rows))
+    if not label:raise ValueError('Girone Nations League da verificare')
+    groups.append(dict(name=label,rows=group_rows))
+   rows.extend(group_rows)
+  if c['name']=='Nations League':
+   if len(groups)!=len(previous_groups):raise ValueError('Gironi Nations League incompleti')
+   groups.sort(key=lambda g:g['name'])
+ latest=max((i for i,r in enumerate(rs) if any(m['played'] for m in r['matches'])),default=0)
+ live=dict(source=source,sourceLabel='SportScore',checked=checked(),standings=rows,scorers=[],assists=[],keepers=[],playedCount=sum(m['played'] for r in rs for m in r['matches']),detailCount=0)
+ if groups:live['groups']=groups
+ if c['name']=='Conference League':live['standingsNote']='Classifica calcolata sui risultati della fase campionato. Parità ordinate per punti, differenza reti e gol fatti; gli ulteriori criteri UEFA non sono applicati.'
+ c.update(fixtures=dict(rs[latest],rounds=rs),live=live,details={},coverage=dict(provider='sportscore',events='Tabellini individuali non collegati.',live='Aggiornamento periodico · SportScore',attribution='Powered by SportScore',terms=source+'developers/terms/'))
+ return c
+
 def main():
  import fcntl
  lock=(ROOT/'updater/.refresh.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX)
@@ -247,13 +319,21 @@ def main():
  for snapshot in DATA.glob('*.json'):
   if snapshot.name=='manifest.json':continue
   if re.match(r'^Serie [CD](?:$| ·)',json.loads(snapshot.read_text()).get('name','')):snapshot.unlink()
+ remote=None
  for name,cfg in CFG.items():
   if args.league and name!=args.league:continue
   path=DATA/cfg['file'];old=json.loads(path.read_text());c=json.loads(json.dumps(old));c['coverage']={};state=manifest['competitions'][name];state['lastAttempt']=stamp()
   if cfg.get('finished') and cfg.get('provider')!='football-data':state.update(state='concluded',lastError=None);continue
   try:
+   if cfg.get('provider')=='sportscore' and not args.offline_test:
+    if remote is None:remote=get('https://quisport.bonafedetablet.workers.dev/data/manifest.json')
+    prior=remote['competitions'][name];filename=prior['file']
+    if not re.fullmatch(r'[a-f0-9]{16}\.json',filename):raise ValueError('Versione precedente non valida')
+    old=get('https://quisport.bonafedetablet.workers.dev/data/'+filename)
+    if old.get('name')!=name:raise ValueError('Snapshot precedente non valido')
+    atomic(path,old);c=json.loads(json.dumps(old))
    if args.offline_test:raise ConnectionError('Simulated source outage')
-   candidate=({"football-data":football_data,"openligadb":openliga}.get(cfg.get("provider"),espn))(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
+   candidate=({"football-data":football_data,"openligadb":openliga,"sportscore":sportscore}[cfg["provider"]])(c,cfg,args.rosters);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
    print(name,'OK',flush=True)
   except Exception as e:
    fail+=1;state.update(state='error',lastError='Aggiornamento non riuscito; conservati gli ultimi dati verificati.');print(name,type(e).__name__,str(e)[:160],file=sys.stderr,flush=True)
