@@ -1,0 +1,56 @@
+name: Aggiorna dati QuiSport
+on:
+  workflow_dispatch:
+    inputs:
+      league:
+        description: 'Competizione (vuoto = tutte)'
+        required: false
+        default: ''
+      rosters:
+        description: 'Aggiorna anche le rose ESPN'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: quisport-data
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Aggiorna e conserva le ultime versioni valide
+        id: update
+        continue-on-error: true
+        env:
+          LEAGUE: ${{ inputs.league }}
+          ROSTERS: ${{ inputs.rosters }}
+        run: |
+          args=()
+          if [ -n "$LEAGUE" ]; then args+=(--league "$LEAGUE"); fi
+          if [ "$ROSTERS" = "true" ] || [ "$(date -u +%H)" = "03" ]; then args+=(--rosters); fi
+          python3 updater/refresh.py "${args[@]}"
+      - name: Salva i dati verificati
+        run: |
+          git config user.name 'QuiSport Data'
+          git config user.email 'quisport-data@users.noreply.github.com'
+          git add dist/data
+          if ! git diff --cached --quiet; then
+            git commit -m 'Aggiorna dati sportivi verificati'
+            git push
+          fi
+      - name: Pubblica su Cloudflare
+        env:
+          QUISPORT_UPDATE_URL: ${{ secrets.QUISPORT_UPDATE_URL }}
+          QUISPORT_UPDATE_TOKEN: ${{ secrets.QUISPORT_UPDATE_TOKEN }}
+        run: python3 updater/publish.py
+      - name: Segnala fonti da verificare
+        if: steps.update.outcome == 'failure'
+        run: exit 1
