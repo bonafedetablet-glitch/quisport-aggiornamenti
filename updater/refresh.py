@@ -41,7 +41,16 @@ def validate(candidate,previous):
     for n,gf,ga in [(m['home'],a,b),(m['away'],b,a)]:total[n][0]+=1;total[n][1]+=gf;total[n][2]+=ga
    detail=candidate['details'].get('|'.join([candidate['name'],m['date'],m['home'],m['away']]))
    if detail:assert [sum(e[1]==m[h] for e in detail['goals']) for h in ['home','away']]==[a,b],'Gol tabellino incoerenti'
- for t in rows:assert total[t['name']]==[t['played'],t['goalsFor'],t['goalsAgainst']],'Calendario e classifica non allineati'
+ # Some providers include ongoing matches in their provisional standings.
+ # Accept only an exact whole-table match against completed games or all live scores.
+ projected={n:list(v) for n,v in total.items()}
+ for m in matches:
+  if not m['played'] and m.get('isGroup',True) and m.get('statusLabel','').startswith('IN CORSO') and re.fullmatch(r'\d+ – \d+',m['score']):
+   a,b=map(int,m['score'].split(' – '))
+   for n,gf,ga in [(m['home'],a,b),(m['away'],b,a)]:
+    v=projected.setdefault(n,[0,0,0]);v[0]+=1;v[1]+=gf;v[2]+=ga
+ def aligned(expected):return all(expected.get(t['name'],[0,0,0])==[t['played'],t['goalsFor'],t['goalsAgainst']] for t in rows)
+ assert aligned(total) or aligned(projected),'Calendario e classifica non allineati: '+str([(t['name'],total[t['name']],projected.get(t['name']),[t['played'],t['goalsFor'],t['goalsAgainst']]) for t in rows if total[t['name']]!=[t['played'],t['goalsFor'],t['goalsAgainst']]])
  oldmatches=[m for r in previous['fixtures']['rounds'] for m in r['matches']];assert len(matches)>=len(oldmatches),'Calendario ridotto dalla fonte'
  return candidate
 
