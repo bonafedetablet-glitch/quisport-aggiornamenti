@@ -10,7 +10,12 @@ def publish(send=None):
    req=urllib.request.Request(endpoint+'/__updates/'+name,data=body,method='PUT',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','User-Agent':'QuiSport-Updater/1.0'})
    with urllib.request.urlopen(req,timeout=60) as response:
     if response.status!=200:raise RuntimeError('Publication rejected')
- for state in manifest['competitions'].values():
+ remote=None
+ for competition,state in list(manifest['competitions'].items()):
+  if state.get('provider')=='sportscore' and state.get('state')!='ok':
+   if remote is None:
+    with urllib.request.urlopen(urllib.request.Request('https://quisport.bonafedetablet.workers.dev/data/manifest.json',headers={'User-Agent':'QuiSport-Updater/1.0'}),timeout=30) as response:remote=json.load(response)
+   previous=remote['competitions'][competition].copy();previous.update(state='error',lastError=state.get('lastError'),lastAttempt=state.get('lastAttempt'));manifest['competitions'][competition]=previous;continue
   filename=state['file']
   if len(filename)!=21 or not filename.endswith('.json') or any(c not in '0123456789abcdef' for c in filename[:16]):raise ValueError('Invalid snapshot filename')
   body=(data/filename).read_bytes()
