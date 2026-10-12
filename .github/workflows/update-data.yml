@@ -42,7 +42,8 @@ jobs:
         run: |
           git config user.name 'QuiSport Data'
           git config user.email 'quisport-data@users.noreply.github.com'
-          git add dist/data
+          # SportScore permits site display, but not public bulk datasets.
+          git add dist/data ':!dist/data/aa118803c292568d.json' ':!dist/data/54ded8193f16459a.json' ':!dist/data/bfa814178ca6b5fa.json'
           if ! git diff --cached --quiet; then
             git commit -m 'Aggiorna dati sportivi verificati'
             git push
