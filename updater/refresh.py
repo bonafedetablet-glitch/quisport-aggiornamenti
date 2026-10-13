@@ -3,7 +3,7 @@ Run from any directory: python3 updater/refresh.py [--league NAME] [--rosters] [
 Cloud scheduling is supplied by the host, not the visitor's browser.
 """
 from pathlib import Path
-import argparse,collections,concurrent.futures,datetime,html,json,os,re,sys,tempfile,time,unicodedata,urllib.request
+import argparse,collections,concurrent.futures,datetime,html,json,os,re,sys,tempfile,time,unicodedata,urllib.request,urllib.error
 from zoneinfo import ZoneInfo
 ROOT=Path(__file__).resolve().parents[1];DATA=ROOT/'dist/data';CFG=json.loads((ROOT/'updater/config.json').read_text());NOW=datetime.datetime.now(datetime.timezone.utc);TODAY=NOW.astimezone(ZoneInfo('Europe/Rome')).date()
 def clear_unlicensed_clubs(c):
@@ -50,7 +50,19 @@ def validate(candidate,previous):
    for n,gf,ga in [(m['home'],a,b),(m['away'],b,a)]:
     v=projected.setdefault(n,[0,0,0]);v[0]+=1;v[1]+=gf;v[2]+=ga
  def aligned(expected):return all(expected.get(t['name'],[0,0,0])==[t['played'],t['goalsFor'],t['goalsAgainst']] for t in rows)
- assert aligned(total) or aligned(projected),'Calendario e classifica non allineati: '+str([(t['name'],total[t['name']],projected.get(t['name']),[t['played'],t['goalsFor'],t['goalsAgainst']]) for t in rows if total[t['name']]!=[t['played'],t['goalsFor'],t['goalsAgainst']]])
+ if not (aligned(total) or aligned(projected)):
+  # Independent provider endpoints may include one more/fewer completed game.
+  # Equal game counts with different goals remain a genuine validation error.
+  def one_game_lag(t):
+   base=total[t['name']];actual=[t['played'],t['goalsFor'],t['goalsAgainst']]
+   if base==actual:return True
+   delta=[v-u for u,v in zip(base,actual)]
+   return abs(delta[0])==1 and all(v*delta[0]>=0 for v in delta[1:])
+  if candidate.get('coverage',{}).get('provider')=='football-data' and all(one_game_lag(t) for t in rows):
+   candidate['coverage']['standingsAlignment']='pending'
+   candidate['live']['standingsNote']='Classifica fornita da football-data.org. Calendario e classifica possono aggiornarsi in momenti diversi.'
+  else:raise AssertionError('Calendario e classifica non allineati')
+
  oldmatches=[m for r in previous['fixtures']['rounds'] for m in r['matches']];assert len(matches)>=len(oldmatches),'Calendario ridotto dalla fonte'
  return candidate
 
@@ -97,10 +109,23 @@ def fd_get(code,resource):
  global _fd_last
  token=os.environ.get('FOOTBALL_DATA_TOKEN','').strip()
  if not token:raise RuntimeError('Secret FOOTBALL_DATA_TOKEN mancante')
- time.sleep(max(0,7.1-(time.monotonic()-_fd_last)))
- req=urllib.request.Request('https://api.football-data.org/v4/competitions/'+code+resource,headers={'X-Auth-Token':token,'User-Agent':'QuiSport/1.0'})
- _fd_last=time.monotonic()
- with urllib.request.urlopen(req,timeout=40) as response:return json.load(response)
+ for attempt in range(3):
+  time.sleep(max(0,7.1-(time.monotonic()-_fd_last)))
+  req=urllib.request.Request('https://api.football-data.org/v4/competitions/'+code+resource,headers={'X-Auth-Token':token,'User-Agent':'QuiSport/1.0'})
+  _fd_last=time.monotonic()
+  try:
+   with urllib.request.urlopen(req,timeout=40) as response:return json.load(response)
+  except urllib.error.HTTPError as exc:
+   if exc.code not in [429,500,502,503,504] or attempt==2:raise
+   time.sleep(15*(attempt+1))
+  except (urllib.error.URLError,TimeoutError,ConnectionError):
+   if attempt==2:raise
+   time.sleep(5*(attempt+1))
+
+def fd_validate_season(payload,code,season):
+ if payload.get('competition',{}).get('code')!=code:raise ValueError('Competizione inattesa dalla fonte')
+ start=payload.get('season',{}).get('startDate','')
+ if not start.startswith(str(season)+'-'):raise ValueError('Stagione inattesa dalla fonte')
 
 FD_NATIONS=dict(zip('Mexico|Czech Republic|South Korea|South Africa|Canada|Bosnia and Herzegovina|Switzerland|Qatar|Brazil|Scotland|Haiti|Morocco|Paraguay|Turkey|Australia|United States|Ecuador|Germany|Ivory Coast|Curaçao|Netherlands|Sweden|Japan|Tunisia|Belgium|Iran|Egypt|New Zealand|Spain|Uruguay|Saudi Arabia|Cape Verde|Norway|France|Senegal|Iraq|Argentina|Austria|Algeria|Jordan|Colombia|Portugal|Uzbekistan|DR Congo|England|Croatia|Panama|Ghana|Hungary|Italy|Albania|Slovenia|Denmark|Serbia|Poland|Ukraine|Slovakia|Romania|Georgia'.split('|'),'Messico|Cechia|Corea del Sud|Sudafrica|Canada|Bosnia-Herzegovina|Svizzera|Qatar|Brasile|Scozia|Haiti|Marocco|Paraguay|Turchia|Australia|Stati Uniti|Ecuador|Germania|Costa d’Avorio|Curaçao|Paesi Bassi|Svezia|Giappone|Tunisia|Belgio|Iran|Egitto|Nuova Zelanda|Spagna|Uruguay|Arabia Saudita|Capo Verde|Norvegia|Francia|Senegal|Iraq|Argentina|Austria|Algeria|Giordania|Colombia|Portogallo|Uzbekistan|RD Congo|Inghilterra|Croazia|Panama|Ghana|Ungheria|Italia|Albania|Slovenia|Danimarca|Serbia|Polonia|Ucraina|Slovacchia|Romania|Georgia'.split('|')))
 FD_NATIONS.update({'Czechia':'Cechia','Korea Republic':'Corea del Sud','Türkiye':'Turchia','USA':'Stati Uniti','United States of America':'Stati Uniti','Congo DR':'RD Congo','Congo':'RD Congo','Cote d’Ivoire':'Costa d’Avorio',"Côte d’Ivoire":'Costa d’Avorio',"Côte d'Ivoire":'Costa d’Avorio','Cabo Verde':'Capo Verde'})
@@ -111,7 +136,7 @@ def football_data(c,cfg,*_):
   if national:n=FD_NATIONS.get(t.get('name')) or FD_NATIONS.get(t.get('shortName')) or t.get('name')
   if n not in names:raise ValueError('Squadra da verificare: '+str(t.get('name')))
   return n
- payload=fd_get(code,'/matches?season='+str(cfg['season']));events=payload.get('matches',[])
+ payload=fd_get(code,'/matches?season='+str(cfg['season']));fd_validate_season(payload,code,cfg['season']);events=payload.get('matches',[])
  if not events:raise ValueError('Calendario vuoto')
  rounds=collections.OrderedDict();tables=[]
  for e in events:
@@ -124,7 +149,7 @@ def football_data(c,cfg,*_):
   if group:m['group']=group
   rounds.setdefault(label,dict(label=label,source=source,sourceLabel='football-data.org',checked=checked(),matches=[]))['matches'].append(m)
  if not national:
-  p=fd_get(code,'/standings?season='+str(cfg['season']));tables=[g for g in p.get('standings',[]) if g.get('type')=='TOTAL']
+  p=fd_get(code,'/standings?season='+str(cfg['season']));fd_validate_season(p,code,cfg['season']);tables=[g for g in p.get('standings',[]) if g.get('type')=='TOTAL']
   if not tables:raise ValueError('Classifica non disponibile')
   rows=[]
   for g in tables:
@@ -263,7 +288,7 @@ def main():
  for seed in DATA.glob('*.json'):
   value=json.loads(seed.read_text())
   if value.get('schema')==1 and isinstance(value.get('clubs'),list):atomic(seed,clear_unlicensed_clubs(value))
- manifest=json.loads((DATA/'manifest.json').read_text());fail=0
+ manifest=json.loads((DATA/'manifest.json').read_text());fail=0;critical=[];warnings=[]
  manifest['competitions']={name:state for name,state in manifest['competitions'].items() if name in CFG}
  for snapshot in DATA.glob('*.json'):
   if snapshot.name=='manifest.json':continue
@@ -282,9 +307,24 @@ def main():
     if old.get('name')!=name:raise ValueError('Snapshot precedente non valido')
     atomic(path,old);c=json.loads(json.dumps(old))
    if args.offline_test:raise ConnectionError('Simulated source outage')
-   candidate=({"football-data":football_data,"openligadb":openliga,"sportscore":sportscore}[cfg["provider"]])(c,cfg,args.rosters);clear_unlicensed_clubs(candidate);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'])
+   candidate=({"football-data":football_data,"openligadb":openliga,"sportscore":sportscore}[cfg["provider"]])(c,cfg,args.rosters);clear_unlicensed_clubs(candidate);validate(candidate,old);candidate['updatedAt']=stamp();atomic(path,candidate);state.update(provider=cfg.get('provider'),state='ok',lastSuccess=candidate['updatedAt'],lastError=None,coverage=candidate['coverage'],consecutiveFailures=0)
    print(name,'OK',flush=True)
   except Exception as e:
-   fail+=1;state.update(state='error',lastError='Aggiornamento non riuscito; conservati gli ultimi dati verificati.');print(name,type(e).__name__,str(e)[:160],file=sys.stderr,flush=True)
- manifest.update(lastAttempt=stamp());atomic(DATA/'manifest.json',manifest);lock.close();return 1 if fail else 0
+   fail+=1;state.update(state='error',lastError='Aggiornamento non riuscito; conservati gli ultimi dati verificati.',consecutiveFailures=state.get('consecutiveFailures',0)+1)
+   message=name+': '+type(e).__name__+' · '+str(e)[:200];warnings.append(message)
+   try:age=(datetime.datetime.now(datetime.timezone.utc)-datetime.datetime.fromisoformat(state['lastSuccess'])).total_seconds()
+   except (KeyError,ValueError,TypeError):age=float('inf')
+   recoverable=isinstance(e,(AssertionError,ValueError,TimeoutError,ConnectionError,urllib.error.URLError)) and not (isinstance(e,urllib.error.HTTPError) and e.code in [401,403])
+   if not recoverable or age>=6*3600:critical.append(message)
+   print('Fonte temporaneamente non disponibile; dati conservati:',message,file=sys.stderr,flush=True)
+ manifest.update(lastAttempt=stamp());atomic(DATA/'manifest.json',manifest);lock.close()
+ summary=os.environ.get('GITHUB_STEP_SUMMARY')
+ if summary:
+  with open(summary,'a') as f:
+   f.write('## Verifica dati QuiSport\n\n')
+   f.write('Fonti da ricontrollare: '+str(fail)+'. Ultimi dati validi conservati.\n\n' if fail else 'Tutte le competizioni selezionate aggiornate e verificate.\n')
+   for message in warnings:f.write('- '+message.replace('\n',' ')+'\n')
+ if critical:
+  print('Intervento necessario: dati non aggiornati da almeno 6 ore o errore interno.',file=sys.stderr)
+ return 1 if critical else 0
 if __name__=='__main__':sys.exit(main())
