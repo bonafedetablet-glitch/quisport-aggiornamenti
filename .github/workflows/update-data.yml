@@ -26,6 +26,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Verifica controlli e recupero automatico
+        run: python3 updater/test_refresh.py
       - name: Escludi le vecchie rose dai file pubblici
         run: |
           python3 - <<'PYDATA'
@@ -65,6 +67,6 @@ jobs:
           QUISPORT_UPDATE_URL: ${{ secrets.QUISPORT_UPDATE_URL }}
           QUISPORT_UPDATE_TOKEN: ${{ secrets.QUISPORT_UPDATE_TOKEN }}
         run: python3 updater/publish.py
-      - name: Segnala fonti da verificare
+      - name: Segnala problemi persistenti o errori interni
         if: steps.update.outcome == 'failure'
         run: exit 1
