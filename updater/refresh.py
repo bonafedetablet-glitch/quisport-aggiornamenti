@@ -124,8 +124,8 @@ def fd_get(code,resource):
 
 def fd_validate_season(payload,code,season):
  if payload.get('competition',{}).get('code')!=code:raise ValueError('Competizione inattesa dalla fonte')
- start=payload.get('season',{}).get('startDate','')
- if not start.startswith(str(season)+'-'):raise ValueError('Stagione inattesa dalla fonte')
+ starts=[payload['season'].get('startDate','')] if payload.get('season') else [m.get('season',{}).get('startDate','') for m in payload.get('matches',[])]
+ if not starts or any(not start.startswith(str(season)+'-') for start in starts):raise ValueError('Stagione inattesa dalla fonte')
 
 FD_NATIONS=dict(zip('Mexico|Czech Republic|South Korea|South Africa|Canada|Bosnia and Herzegovina|Switzerland|Qatar|Brazil|Scotland|Haiti|Morocco|Paraguay|Turkey|Australia|United States|Ecuador|Germany|Ivory Coast|Curaçao|Netherlands|Sweden|Japan|Tunisia|Belgium|Iran|Egypt|New Zealand|Spain|Uruguay|Saudi Arabia|Cape Verde|Norway|France|Senegal|Iraq|Argentina|Austria|Algeria|Jordan|Colombia|Portugal|Uzbekistan|DR Congo|England|Croatia|Panama|Ghana|Hungary|Italy|Albania|Slovenia|Denmark|Serbia|Poland|Ukraine|Slovakia|Romania|Georgia'.split('|'),'Messico|Cechia|Corea del Sud|Sudafrica|Canada|Bosnia-Herzegovina|Svizzera|Qatar|Brasile|Scozia|Haiti|Marocco|Paraguay|Turchia|Australia|Stati Uniti|Ecuador|Germania|Costa d’Avorio|Curaçao|Paesi Bassi|Svezia|Giappone|Tunisia|Belgio|Iran|Egitto|Nuova Zelanda|Spagna|Uruguay|Arabia Saudita|Capo Verde|Norvegia|Francia|Senegal|Iraq|Argentina|Austria|Algeria|Giordania|Colombia|Portogallo|Uzbekistan|RD Congo|Inghilterra|Croazia|Panama|Ghana|Ungheria|Italia|Albania|Slovenia|Danimarca|Serbia|Polonia|Ucraina|Slovacchia|Romania|Georgia'.split('|')))
 FD_NATIONS.update({'Czechia':'Cechia','Korea Republic':'Corea del Sud','Türkiye':'Turchia','USA':'Stati Uniti','United States of America':'Stati Uniti','Congo DR':'RD Congo','Congo':'RD Congo','Cote d’Ivoire':'Costa d’Avorio',"Côte d’Ivoire":'Costa d’Avorio',"Côte d'Ivoire":'Costa d’Avorio','Cabo Verde':'Capo Verde'})
