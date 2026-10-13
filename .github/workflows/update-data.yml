@@ -52,12 +52,19 @@ jobs:
           if [ -n "$LEAGUE" ]; then args+=(--league "$LEAGUE"); fi
           if [ "$ROSTERS" = "true" ] || [ "$(date -u +%H)" = "03" ]; then args+=(--rosters); fi
           python3 updater/refresh.py "${args[@]}"
+      - name: Aggiorna Formula 1
+        id: f1
+        continue-on-error: true
+        run: |
+          node --test updater/test_f1.mjs
+          node updater/f1.mjs
       - name: Salva i dati verificati
         run: |
           git config user.name 'QuiSport Data'
           git config user.email 'quisport-data@users.noreply.github.com'
           # SportScore permits site display, but not public bulk datasets.
           git add dist/data ':!dist/data/aa118803c292568d.json' ':!dist/data/54ded8193f16459a.json' ':!dist/data/bfa814178ca6b5fa.json'
+          if [ -f dist/f1-data.json ]; then git add dist/f1-data.json; fi
           if ! git diff --cached --quiet; then
             git commit -m 'Aggiorna dati sportivi verificati'
             git push
@@ -68,5 +75,5 @@ jobs:
           QUISPORT_UPDATE_TOKEN: ${{ secrets.QUISPORT_UPDATE_TOKEN }}
         run: python3 updater/publish.py
       - name: Segnala problemi persistenti o errori interni
-        if: steps.update.outcome == 'failure'
+        if: steps.update.outcome == 'failure' || steps.f1.outcome == 'failure'
         run: exit 1
