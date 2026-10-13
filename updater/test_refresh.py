@@ -1,4 +1,4 @@
-import copy,datetime,importlib.util,json,tempfile,unittest,urllib.error
+import contextlib,io,copy,datetime,importlib.util,json,tempfile,unittest,urllib.error
 from pathlib import Path
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('refresh',Path(__file__).with_name('refresh.py'));mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
@@ -33,7 +33,7 @@ class RetentionTests(unittest.TestCase):
   success=(datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(hours=age)).isoformat()
   (self.data/'manifest.json').write_text(json.dumps({'competitions':{'Test':{'file':self.file,'lastSuccess':success,'state':'ok'}}}))
  def run_refresh(self,provider):
-  with patch.object(mod,'ROOT',self.root),patch.object(mod,'DATA',self.data),patch.object(mod,'CFG',self.cfg),patch.object(mod,'football_data',provider),patch('sys.argv',['refresh']):return mod.main()
+  with patch.object(mod,'ROOT',self.root),patch.object(mod,'DATA',self.data),patch.object(mod,'CFG',self.cfg),patch.object(mod,'football_data',provider),patch('sys.argv',['refresh']),patch.dict('os.environ',{'GITHUB_STEP_SUMMARY':str(self.root/'test-summary.md')}),contextlib.redirect_stderr(io.StringIO()),contextlib.redirect_stdout(io.StringIO()):return mod.main()
  def test_temporary_outage_preserves_then_recovers(self):
   def outage(*_):raise TimeoutError('source offline')
   self.assertEqual(self.run_refresh(outage),0)
