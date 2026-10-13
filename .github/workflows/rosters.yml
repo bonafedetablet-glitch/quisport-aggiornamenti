@@ -1,0 +1,54 @@
+name: Aggiorna rose QuiSport
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '35 5 * * *'
+permissions:
+  contents: read
+jobs:
+  rosters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recupera e pubblica rose autorizzate
+        env:
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          QUISPORT_UPDATE_URL: ${{ secrets.QUISPORT_UPDATE_URL }}
+          QUISPORT_UPDATE_TOKEN: ${{ secrets.QUISPORT_UPDATE_TOKEN }}
+        run: |
+          python3 - <<'PYTHON'
+          import json,os,time,urllib.request,datetime
+          from pathlib import Path
+          cfg=json.loads(Path('updater/config.json').read_text());clubs={};errors=[]
+          token=os.environ['FOOTBALL_DATA_TOKEN'];base=os.environ['QUISPORT_UPDATE_URL'].split('/__updates/')[0].rstrip('/')
+          try:
+           req=urllib.request.Request(base+'/rosters.json',headers={'User-Agent':'QuiSportData/1.0'})
+           with urllib.request.urlopen(req,timeout=30) as r:previous=json.load(r)
+           clubs=previous.get('clubs',{})
+          except Exception:pass
+          for league,c in cfg.items():
+           if c.get('provider')!='football-data' or not c.get('footballDataTeams'):continue
+           code=c['footballDataCode'];mapping=c['footballDataTeams']
+           try:
+            req=urllib.request.Request('https://api.football-data.org/v4/competitions/'+code+'/teams',headers={'X-Auth-Token':token,'User-Agent':'QuiSportData/1.0'})
+            with urllib.request.urlopen(req,timeout=40) as r:payload=json.load(r)
+            count=0
+            for team in payload.get('teams',[]):
+             name=mapping.get(str(team['id']));squad=team.get('squad',[])
+             if not name or len(squad)<11:continue
+             players=[]
+             for p in squad:
+              pos=(p.get('position') or '').lower()
+              role='Portieri' if 'goal' in pos else 'Difensori' if any(x in pos for x in ['back','defen']) else 'Centrocampisti' if 'midfield' in pos else 'Attaccanti' if any(x in pos for x in ['wing','forward','striker','offen','attack']) else 'Ruolo non indicato'
+              if p.get('name'):players.append({'name':p['name'],'role':role})
+             if len(players)<11:continue
+             clubs[name]={'name':name,'players':players,'checked':datetime.datetime.now(datetime.timezone.utc).isoformat(),'source':'https://www.football-data.org/','sourceLabel':'football-data.org'};count+=1
+            print(league,':',count,'rose disponibili')
+           except Exception as e:errors.append(league);print('Fonte non disponibile:',league,type(e).__name__)
+           time.sleep(7.2)
+          if not clubs:raise RuntimeError('Nessuna rosa disponibile: piano API da verificare')
+          body=json.dumps({'schema':1,'clubs':clubs,'updatedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()},ensure_ascii=False).encode()
+          req=urllib.request.Request(base+'/__updates/rosters.json',data=body,method='PUT',headers={'Authorization':'Bearer '+os.environ['QUISPORT_UPDATE_TOKEN'],'Content-Type':'application/json','User-Agent':'QuiSportData/1.0'})
+          with urllib.request.urlopen(req,timeout=40) as r:print('Pubblicate',len(clubs),'rose; HTTP',r.status)
+          PYTHON
