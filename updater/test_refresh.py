@@ -17,6 +17,10 @@ class ValidationTests(unittest.TestCase):
  def test_partial_table_rejected(self):
   c=snapshot();old=copy.deepcopy(c);c['live']['standings'].pop()
   with self.assertRaises(AssertionError):mod.validate(c,old)
+ def test_season_in_matches_response(self):
+  mod.fd_validate_season({'competition':{'code':'SA'},'matches':[{'season':{'startDate':'2026-08-01'}}]},'SA',2026)
+ def test_season_in_standings_response(self):
+  mod.fd_validate_season({'competition':{'code':'SA'},'season':{'startDate':'2026-08-01'}},'SA',2026)
  def test_wrong_season_rejected(self):
   with self.assertRaises(ValueError):mod.fd_validate_season({'competition':{'code':'SA'},'season':{'startDate':'2025-08-01'}},'SA',2026)
  def test_wrong_competition_rejected(self):
