@@ -1,0 +1,68 @@
+name: Aggiorna coppe italiane QuiSport
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: italian-cups
+  cancel-in-progress: false
+jobs:
+  cups:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recupera e pubblica Coppa Italia e Supercoppa
+        env:
+          QUISPORT_UPDATE_TOKEN: ${{ secrets.QUISPORT_UPDATE_TOKEN }}
+        run: |
+          python3 - <<'PYTHON'
+          import json,os,datetime,time,urllib.request,concurrent.futures
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+          BASE=os.environ.get('QUISPORT_BASE_URL','https://quisport.it').rstrip('/');NOW=datetime.datetime.now(datetime.timezone.utc);today=NOW.astimezone(ZoneInfo('Europe/Rome')).date();season=today.year if today.month>=7 else today.year-1
+          specs={'Coppa Italia':('coppa-italia','Coppa Italia'),'Supercoppa italiana':('ea-sports-fc-supercup','EA SPORTS FC Supercup')}
+          def get(url):
+           for i in range(5):
+            try:
+             req=urllib.request.Request(url,headers={'User-Agent':'QuiSportData/1.0'})
+             with urllib.request.urlopen(req,timeout=30) as r:return json.load(r)
+            except Exception:
+             if i==4:raise
+             time.sleep(2+i*2)
+          try:old=get(BASE+'/italian-cups.json')
+          except Exception:old={'competitions':{}}
+          result={'schema':1,'season':season,'updatedAt':NOW.isoformat(),'competitions':dict(old.get('competitions',{}))}
+          for name,(slug,label) in specs.items():
+           previous=old.get('competitions',{}).get(name,{});existing=previous.get('matches',[]) if previous.get('season')==season else []
+           full=not previous.get('discoveredAt') or NOW-datetime.datetime.fromisoformat(previous['discoveredAt'])>datetime.timedelta(days=7)
+           if full:
+            start=datetime.date(season,7,1);end=datetime.date(season+1,6,30);dates=[(start+datetime.timedelta(days=i)).isoformat() for i in range((end-start).days+1)]
+           else:dates=sorted({(today+datetime.timedelta(days=i)).isoformat() for i in range(-3,8)}|{m['date'] for m in existing if m.get('status')!='finished'})
+           if name=='Supercoppa italiana' and season==2026:dates=sorted(set(dates if not full else [])|{'2026-12-22'}|{(today+datetime.timedelta(days=i)).isoformat() for i in range(-2,3)})
+           def day(date):
+            p=get('https://sportscore.com/api/v1/fixtures/?sport=football&date='+date+'&competition='+slug+'&limit=200')
+            if p.get('date')!=date or p.get('count')!=len(p.get('matches',[])) or p['count']>=200:raise ValueError('Calendario incompleto')
+            time.sleep(.15)
+            return p['matches']
+           try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:events=[e for batch in pool.map(day,dates) for e in batch]
+            byid={m['id']:m for m in existing}
+            for e in events:
+             if e.get('competition')!=label:raise ValueError('Competizione inattesa')
+             dt=datetime.datetime.fromisoformat(e['time']).astimezone(ZoneInfo('Europe/Rome'));a,b=e.get('home_score'),e.get('away_score');status=e.get('status');done=status=='finished'
+             if done and (a is None or b is None):raise ValueError('Risultato finale mancante')
+             ident=e['url'].rstrip('/').split('/')[-1];byid[ident]={'id':ident,'home':e['home'],'away':e['away'],'date':dt.date().isoformat(),'time':dt.strftime('%H:%M'),'status':status,'homeScore':int(a) if a is not None else None,'awayScore':int(b) if b is not None else None,'source':'https://sportscore.com'+e['url']}
+            if not byid:raise ValueError('Nessuna partita disponibile dalla fonte')
+            result['competitions'][name]={'season':season,'sourceLabel':'SportScore','checked':NOW.isoformat(),'discoveredAt':NOW.isoformat() if full else previous['discoveredAt'],'matches':sorted(byid.values(),key=lambda m:(m['date'],m['time'],m['id']))}
+            print(name,':',len(byid),'partite',flush=True)
+           except Exception as e:
+            print(name,': conservati ultimi dati validi -',type(e).__name__,flush=True)
+            if not existing:raise
+          Path('work/f1/italian-cups-current.json').parent.mkdir(parents=True,exist_ok=True);Path('work/f1/italian-cups-current.json').write_text(json.dumps(result,ensure_ascii=False))
+          if os.environ.get('QUISPORT_UPDATE_TOKEN'):
+           req=urllib.request.Request(BASE+'/__updates/italian-cups.json',data=json.dumps(result,ensure_ascii=False).encode(),method='PUT',headers={'Authorization':'Bearer '+os.environ['QUISPORT_UPDATE_TOKEN'],'Content-Type':'application/json','User-Agent':'QuiSportData/1.0'})
+           with urllib.request.urlopen(req,timeout=40) as r:print('Pubblicato HTTP',r.status)
+          PYTHON
