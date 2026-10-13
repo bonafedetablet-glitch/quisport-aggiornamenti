@@ -25,6 +25,8 @@ def publish(send=None):
    send(extra,export)
   version=hashlib.sha256(body).hexdigest()[:16]+'.json'
   send(version,body);state['file']=version
+ f1=data.parent/'f1-data.json'
+ if f1.exists():send('f1-current.json',f1.read_bytes())
  manifest.update(schedulerReady=True,publishedAt=datetime.datetime.now(datetime.timezone.utc).isoformat(),intervalMinutes=60)
  send('manifest.json',json.dumps(manifest,ensure_ascii=False,separators=(',',':')).encode())
  print('Pubblicazione completata')
