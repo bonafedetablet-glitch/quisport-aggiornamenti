@@ -67,6 +67,7 @@ jobs:
           if [ -f dist/f1-data.json ]; then git add dist/f1-data.json; fi
           if ! git diff --cached --quiet; then
             git commit -m 'Aggiorna dati sportivi verificati'
+            git -c rebase.autoStash=true pull --rebase origin main
             git push
           fi
       - name: Pubblica su Cloudflare
