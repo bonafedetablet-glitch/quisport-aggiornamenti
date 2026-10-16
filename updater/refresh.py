@@ -186,8 +186,8 @@ def openliga(c,cfg,*_):
   n=mapping.get(str(i))
   if n not in names:raise ValueError('Squadra OpenLigaDB da verificare: '+str(i))
   return n
- events=get(base+'getmatchdata/'+code+'/'+str(season));table=get(base+'getbltable/'+code+'/'+str(season))
- if not events or not table:raise ValueError('Dati OpenLigaDB incompleti')
+ events=get(base+'getmatchdata/'+code+'/'+str(season))
+ if not events:raise ValueError('Dati OpenLigaDB incompleti')
  rounds={}
  for e in events:
   if e.get('leagueShortcut')!=code or e.get('leagueSeason')!=season:raise ValueError('Stagione OpenLigaDB non corrispondente')
@@ -200,12 +200,22 @@ def openliga(c,cfg,*_):
   rounds.setdefault(num,dict(label=label,source=source,sourceLabel='OpenLigaDB',checked=checked(),matches=[]))['matches'].append(match)
  rs=[rounds[n] for n in sorted(rounds)]
  for r in rs:r['matches'].sort(key=lambda m:(m['date'],m['time'],m['home']))
- rows=[dict(name=team(r['teamInfoId']),position=i+1,points=r['points'],played=r['matches'],wins=r['won'],draws=r['draw'],losses=r['lost'],goalsFor=r['goals'],goalsAgainst=r['opponentGoals'],difference=r['goalDiff']) for i,r in enumerate(table)]
+ # Derive standings from this same fixture snapshot, never a separately cached table.
+ totals={n:dict(name=n,points=0,played=0,wins=0,draws=0,losses=0,goalsFor=0,goalsAgainst=0,difference=0) for n in names}
+ for rnd in rs:
+  for m in rnd['matches']:
+   if not m['played']:continue
+   a,b=map(int,m['score'].split(' – '))
+   for name,gf,ga in [(m['home'],a,b),(m['away'],b,a)]:
+    row=totals[name];row['played']+=1;row['goalsFor']+=gf;row['goalsAgainst']+=ga;row['difference']+=gf-ga
+    row['wins']+=int(gf>ga);row['draws']+=int(gf==ga);row['losses']+=int(gf<ga);row['points']+=3 if gf>ga else 1 if gf==ga else 0
+ rows=sorted(totals.values(),key=lambda r:(-r['points'],-r['difference'],-r['goalsFor'],r['name']))
+ for i,row in enumerate(rows):row['position']=i+1
  latest=max((i for i,r in enumerate(rs) if any(m['played'] for m in r['matches'])),default=0)
- live=dict(source=source,sourceLabel='OpenLigaDB',checked=checked(),standings=rows,scorers=[],assists=[],keepers=[],license=license_url)
+ live=dict(source=source,sourceLabel='OpenLigaDB',checked=checked(),standings=rows,scorers=[],assists=[],keepers=[],license=license_url,standingsNote='Classifica calcolata sui risultati conclusi disponibili in OpenLigaDB. Parità ordinate per punti, differenza reti e gol fatti; gli ulteriori criteri UEFA non sono applicati.')
  fixtures=dict(rs[latest],rounds=rs)
  # Offer only the adapted OpenLigaDB database; club profiles and imagery are separate.
- exported=dict(name=c['name'],season=season,source=source,license=license_url,notice='Contains information from OpenLigaDB, available under the Open Database License (ODbL) 1.0. QuiSport adaptations: Italian team names and dates in Europe/Rome. Images and club profiles excluded.',standings=rows,rounds=[dict(label=r['label'],matches=r['matches']) for r in rs])
+ exported=dict(name=c['name'],season=season,source=source,license=license_url,notice='Contains information from OpenLigaDB, available under the Open Database License (ODbL) 1.0. QuiSport adaptations: Italian team names, dates in Europe/Rome and standings calculated from completed fixtures (points, goal difference, goals scored; further UEFA tie-breakers excluded). Images and club profiles excluded.',standings=rows,rounds=[dict(label=r['label'],matches=r['matches']) for r in rs])
  body=json.dumps(exported,ensure_ascii=False,separators=(',',':')).encode();filename=hashlib.sha256(body).hexdigest()[:16]+'.json';atomic(DATA/filename,exported);live['openDataFile']=filename
  c.update(fixtures=fixtures,live=live,details={},coverage=dict(provider='openligadb',events='Tabellini individuali non collegati.',live='Aggiornamento periodico da fonte comunitaria; nessuna diretta minuto per minuto.',openDataFile=filename,license=license_url));return c
 
