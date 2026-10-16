@@ -186,17 +186,42 @@ def openliga(c,cfg,*_):
   n=mapping.get(str(i))
   if n not in names:raise ValueError('Squadra OpenLigaDB da verificare: '+str(i))
   return n
- events=get(base+'getmatchdata/'+code+'/'+str(season))
+ events=get(base+'getmatchdata/'+code+'/'+str(season));table=get(base+'getbltable/'+code+'/'+str(season))
  if not events:raise ValueError('Dati OpenLigaDB incompleti')
+ # Some community entries carry a final score but omit the finished flag.
+ # Accept it only after six hours AND when both teams' table totals confirm it.
+ table_by_id={r['teamInfoId']:r for r in table}
+ completed=collections.defaultdict(lambda:[0,0,0]);pending=collections.Counter()
+ for event in events:
+  final=next((r for r in event['matchResults'] if r['resultTypeID']==2),None)
+  if event['matchIsFinished'] and final:
+   for side,gf,ga in [('team1','pointsTeam1','pointsTeam2'),('team2','pointsTeam2','pointsTeam1')]:
+    v=completed[event[side]['teamId']];v[0]+=1;v[1]+=final[gf];v[2]+=final[ga]
+  elif final:
+   for side in ['team1','team2']:pending[event[side]['teamId']]+=1
+ confirmed={}
+ for event in events:
+  kickoff=datetime.datetime.fromisoformat(event['matchDateTimeUTC'].replace('Z','+00:00'))
+  if event['matchIsFinished'] or (NOW-kickoff).total_seconds()<6*3600:continue
+  possible=set((r['pointsTeam1'],r['pointsTeam2']) for r in event['matchResults'] if r['resultTypeID']==2)
+  def corroborated(a,b):
+   for side,gf,ga in [('team1',a,b),('team2',b,a)]:
+    ident=event[side]['teamId'];t=table_by_id.get(ident);v=completed[ident]
+    if not t or pending[ident]!=1 or [t['matches']-v[0],t['goals']-v[1],t['opponentGoals']-v[2]]!=[1,gf,ga]:return False
+   return True
+  accepted=[score for score in possible if corroborated(*score)]
+  if len(accepted)==1:confirmed[event['matchID']]=accepted[0]
  rounds={}
  for e in events:
   if e.get('leagueShortcut')!=code or e.get('leagueSeason')!=season:raise ValueError('Stagione OpenLigaDB non corrispondente')
   home,away=team(e['team1']['teamId']),team(e['team2']['teamId']);dt=datetime.datetime.fromisoformat(e['matchDateTimeUTC'].replace('Z','+00:00')).astimezone(ZoneInfo('Europe/Rome'));done=e['matchIsFinished'];result=next((r for r in e['matchResults'] if r['resultTypeID']==2),None)
+  if e['matchID'] in confirmed:
+   a,b=confirmed[e['matchID']];done=True;result=dict(pointsTeam1=a,pointsTeam2=b)
   if done and not result:raise ValueError('Risultato finale OpenLigaDB mancante')
   num=e['group']['groupOrderID'];label='Giornata '+str(num)
   if not 1<=num<=8:raise ValueError('Nuova fase Europa League: verificare formato')
   score=f"{result['pointsTeam1']} – {result['pointsTeam2']}" if done else '–'
-  match=dict(home=home,away=away,date=dt.date().isoformat(),time=dt.strftime('%H:%M'),score=score,played=done,isGroup=True,source=source,statusLabel='PARTITA CONCLUSA' if done else 'IN PROGRAMMA')
+  match=dict(home=home,away=away,date=dt.date().isoformat(),time=dt.strftime('%H:%M'),score=score,played=done,isGroup=True,source=source,statusLabel='PARTITA CONCLUSA' if done else 'RISULTATO NON DISPONIBILE' if (NOW-dt).total_seconds()>6*3600 else 'IN PROGRAMMA')
   rounds.setdefault(num,dict(label=label,source=source,sourceLabel='OpenLigaDB',checked=checked(),matches=[]))['matches'].append(match)
  rs=[rounds[n] for n in sorted(rounds)]
  for r in rs:r['matches'].sort(key=lambda m:(m['date'],m['time'],m['home']))
