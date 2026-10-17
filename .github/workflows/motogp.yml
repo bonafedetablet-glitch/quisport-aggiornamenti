@@ -1,0 +1,24 @@
+name: Aggiorna MotoGP QuiSport
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: quisport-motogp
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Aggiorna e pubblica MotoGP verificata
+        env:
+          QUISPORT_UPDATE_URL: ${{ secrets.QUISPORT_UPDATE_URL }}
+          QUISPORT_UPDATE_TOKEN: ${{ secrets.QUISPORT_UPDATE_TOKEN }}
+        run: python3 updater/motogp.py --publish
