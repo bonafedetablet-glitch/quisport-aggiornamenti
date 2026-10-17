@@ -129,10 +129,12 @@ def enrich(race,raw,url,known):
    positions=[x['position'] for x in parsed if x['position']]
    if len(positions)!=len(set(positions)):raise ValueError('Posizioni qualifiche duplicate')
    race['qualifyingResults']=parsed;break
- grid={}
- for result in (race_rows or sprint_rows or []):
-  if str(result.get('grid','')).isdigit():grid[result['grid']]=dict(result,position=int(result['grid']))
- race['gridResults']=sorted(grid.values(),key=lambda x:x['position'])
+ race['gridResults']=[]
+ for label,results in [('Gara',race_rows),('Sprint',sprint_rows)]:
+  rows=[dict(x,position=int(x['grid'])) for x in results or [] if str(x.get('grid','')).isdigit()]
+  positions=[x['position'] for x in rows]
+  if rows and len(positions)==len(set(positions)):
+   race['gridResults']=sorted(rows,key=lambda x:x['position']);race['gridSession']=label;break
  # First infobox MotoGP pole time; never use the Moto2/Moto3 section.
  for table in ts:
   if 'infobox' in table['class']:
@@ -169,7 +171,7 @@ def update(previous=None):
     failures.append(problem)
     old=next((x for x in (previous or {}).get('races',[]) if x['round']==race['round']),None)
     if old and old.get('detailSource') and [(x['name'],x['position']) for x in old['results']]==[(x['name'],x['position']) for x in race['results']]:
-     for k in ('results','sprintResults','qualifyingResults','gridResults','poleTime','detailSource','detailRevision','raceComplete','sprintComplete'): 
+     for k in ('results','sprintResults','qualifyingResults','gridResults','poleTime','detailSource','detailRevision','raceComplete','sprintComplete','gridSession'): 
       if k in old:race[k]=old[k]
  data['schedulerReady']=True;data['intervalMinutes']=60;data['coverage']=dict(raceSessions=sum(bool(r.get('raceComplete')) for r in data['races']),sprintSessions=sum(bool(r.get('sprintComplete')) for r in data['races']),qualifyingSessions=sum(bool(r.get('qualifyingResults')) for r in data['races']),sourceFailures=failures)
  return validate(data)
