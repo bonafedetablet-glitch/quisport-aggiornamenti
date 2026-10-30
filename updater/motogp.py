@@ -24,7 +24,7 @@ class Tables(HTMLParser):
  def handle_data(self,d):
   if self.stack and self.stack[-1]['cell'] is not None:self.stack[-1]['cell']['sup' if self.sup else 'text']+=d
 
-import datetime,urllib.request,urllib.error,os,sys,concurrent.futures,unicodedata,time
+import datetime,urllib.request,urllib.error,os,sys,concurrent.futures,unicodedata,time,ssl
 def expand(rows):
  out=[];spans={}
  for row in rows:
@@ -175,6 +175,20 @@ def update(previous=None):
       if k in old:race[k]=old[k]
  data['schedulerReady']=True;data['intervalMinutes']=60;data['coverage']=dict(raceSessions=sum(bool(r.get('raceComplete')) for r in data['races']),sprintSessions=sum(bool(r.get('sprintComplete')) for r in data['races']),qualifyingSessions=sum(bool(r.get('qualifyingResults')) for r in data['races']),sourceFailures=failures)
  return validate(data)
+def put_with_retry(request,opener=None,sleep=None):
+ # Repeating the same authenticated PUT is idempotent; never retry auth/data errors.
+ opener=opener or urllib.request.urlopen;sleep=sleep or time.sleep
+ for attempt in range(3):
+  try:
+   with opener(request,timeout=60) as response:
+    if response.status!=200:raise RuntimeError('Publication rejected')
+   return
+  except urllib.error.HTTPError as error:
+   if error.code not in (408,429,500,502,503,504) or attempt==2:raise
+  except (urllib.error.URLError,TimeoutError,ConnectionError,ssl.SSLError):
+   if attempt==2:raise
+  sleep(2**(attempt+1))
+
 def main():
  endpoint=os.environ.get('QUISPORT_UPDATE_URL','').rstrip('/');token=os.environ.get('QUISPORT_UPDATE_TOKEN','');previous=None
  if endpoint:
@@ -197,7 +211,7 @@ def main():
  if '--publish' in sys.argv:
   if not endpoint.startswith('https://') or not token:raise ValueError('Configurazione pubblicazione mancante')
   request=urllib.request.Request(endpoint+'/__updates/motogp-current.json',data=body,method='PUT',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','User-Agent':'QuiSportData/1.0'})
-  with urllib.request.urlopen(request,timeout=60) as r:assert r.status==200
+  put_with_retry(request)
  coverage=data['coverage'];message='MotoGP verificata: '+str(coverage)
  print(message)
  if os.environ.get('GITHUB_STEP_SUMMARY'):
