@@ -267,6 +267,22 @@ def sportscore(c,cfg,*_):
   time.sleep(.15)
   return data['matches']
  with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:events=[m for batch in pool.map(day,sorted(dates)) for m in batch]
+ # TV scheduling can move a fixture away from every previously stored date.
+ # Search neighbouring days only for missing pairs, then retain strict completeness.
+ found={(team(e['home']),team(e['away'])) for e in events}
+ missing=set(index)-found
+ if missing:
+  extra_dates=set()
+  for rnd in c['fixtures']['rounds']:
+   for match in rnd['matches']:
+    if (match['home'],match['away']) in missing:
+     original=datetime.date.fromisoformat(match['date'])
+     extra_dates.update((original+datetime.timedelta(days=offset)).isoformat() for offset in range(-3,4))
+  extra_dates-=dates
+  with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+   additions=[event for batch in pool.map(day,sorted(extra_dates)) for event in batch]
+  # Adjacent dates can also contain already imported fixtures; do not duplicate them.
+  events.extend(event for event in additions if (team(event['home']),team(event['away'])) in missing)
  rounds={label:dict(label=label,source=source,sourceLabel='SportScore',checked=checked(),matches=[]) for label in dict.fromkeys(v[0] for v in index.values())};seen=set()
  for e in events:
   home,away=team(e['home']),team(e['away']);key=(home,away)
